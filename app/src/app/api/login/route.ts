@@ -5,16 +5,20 @@ import { serverClient } from "@/lib/supabase/server";
 
 const Body = z.object({ email: z.string().trim().toLowerCase().email().max(320) });
 
-// Best-effort brake against guessing e-mails: 8 tries a minute per caller and per address.
-// (In-memory, so it is per server instance. Good enough to slow a script down, not a real rate limiter.)
+// Best-effort brake against guessing e-mails, in memory (so per server instance; a speed bump, not a real rate limiter).
+// Two buckets, both keyed on the CALLER: all tries from one address, and tries of one address by one caller. There is no bucket
+// on the e-mail alone, so nobody can lock a colleague out by repeating their address.
 const hits = new Map<string, number[]>();
-function tooMany(key: string) {
+function tooMany(key: string, max: number) {
   const now = Date.now();
   const list = (hits.get(key) ?? []).filter((t) => now - t < 60_000);
   list.push(now);
   hits.set(key, list);
-  if (hits.size > 5000) hits.clear();
-  return list.length > 8;
+  if (hits.size > 5000) {
+    // drop only the entries whose window has passed, never everything at once
+    for (const [k, v] of hits) if (v[v.length - 1] < now - 60_000) hits.delete(k);
+  }
+  return list.length > max;
 }
 
 /**
@@ -31,7 +35,7 @@ export async function POST(req: NextRequest) {
   const { email } = parsed.data;
   // Vercel sets x-real-ip itself (a client cannot spoof it); fall back to the forwarded chain only outside Vercel.
   const ip = req.headers.get("x-real-ip") ?? req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "?";
-  if (tooMany("ip:" + ip) || tooMany("mail:" + email)) return NextResponse.json({ error: "slow down" }, { status: 429 }); // per caller and per address
+  if (tooMany("ip:" + ip, 20) || tooMany("pair:" + ip + "|" + email, 6)) return NextResponse.json({ error: "slow down" }, { status: 429 });
 
   const admin = createClient(url, key, { auth: { persistSession: false } });
   const { data: allowed, error: lookupError } = await admin.from("allowed_emails").select("email").eq("email", email).maybeSingle();
