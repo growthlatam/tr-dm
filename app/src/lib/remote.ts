@@ -118,7 +118,7 @@ const lsSet = (k: string, v: string) => {
 const ORG_KEY = "tr-dm-org";
 const acctKey = (org: string) => `tr-dm-account:${org}`;
 
-export type Boot = { workspaces: Workspace[]; portfolios: Portfolio[]; accounts: Account[]; activeOrg: string; activeAccount: string | null; automations: Automation[] };
+export type Boot = { workspaces: Workspace[]; portfolios: Portfolio[]; accounts: Account[]; activeOrg: string | null; activeAccount: string | null; automations: Automation[] };
 
 /** Signed-in user's workspaces, the connections and accounts of the active one, and the active account's automations.
  *  Returns null when nobody is signed in (the login page): the caller tries again after sign-in. */
@@ -128,11 +128,12 @@ export async function bootstrap(): Promise<Boot | null> {
   if (!auth.user) return null;
   const mem = await sb.from("org_members").select("org_id,role,orgs(name)").order("created_at");
   if (mem.error) throw mem.error;
-  let workspaces: Workspace[] = (mem.data ?? []).map((m) => ({ id: m.org_id as string, name: String((m.orgs as unknown as { name?: string } | null)?.name ?? "Workspace"), role: m.role as Workspace["role"] }));
+  const workspaces: Workspace[] = (mem.data ?? []).map((m) => ({ id: m.org_id as string, name: String((m.orgs as unknown as { name?: string } | null)?.name ?? "Workspace"), role: m.role as Workspace["role"] }));
+  // Workspaces are handed out by the administrator: someone with none sees a waiting screen, nothing is created for them.
   if (!workspaces.length) {
-    const created = await sb.rpc("create_org", { p_name: "TR Marketing" });
-    if (created.error) throw created.error;
-    workspaces = [{ id: created.data as string, name: "TR Marketing", role: "owner" }];
+    orgId = null;
+    accountId = null;
+    return { workspaces, portfolios: [], accounts: [], activeOrg: null, activeAccount: null, automations: [] };
   }
   const saved = lsGet(ORG_KEY);
   orgId = (workspaces.find((w) => w.id === saved) ?? workspaces[0]).id;

@@ -41,37 +41,31 @@ try {
   await mkUser("viewer");
   await mkUser("outsider");
   await mkUser("admin");
+  await mkUser("master");
 
   const a = users.a.c;
   const b = users.b.c;
-  const orgA = (await a.rpc("create_org", { p_name: "A" })).data;
-  const orgB = (await b.rpc("create_org", { p_name: "B" })).data;
+  // workspaces are handed out by the administrator: they are made with the service role here, as the admin panel does
+  const mkOrg = async (name, owner) => {
+    const o = (await admin.from("orgs").insert({ name }).select("id").single()).data.id;
+    await admin.from("org_members").insert({ org_id: o, user_id: owner, role: "owner" });
+    return o;
+  };
+  const orgA = await mkOrg("A", users.a.id);
+  const orgB = await mkOrg("B", users.b.id);
   orgs.push(orgA, orgB);
-  check("each user can create their own workspace", !!orgA && !!orgB);
-  // same company domain: the second person joins the first person's workspace as an editor
-  const mates = [];
-  for (const l of ["mate1", "mate2"]) {
-    const email = `rls-${l}-${tag}@shared-${tag}.example.test`;
-    const { data, error } = await admin.auth.admin.createUser({ email, password: pw, email_confirm: true });
-    if (error) throw error;
-    emails.push(email);
-    await admin.from("allowed_emails").insert({ email });
-    const c = createClient(url, anon, { auth: { persistSession: false } });
-    await c.auth.signInWithPassword({ email, password: pw });
-    users[l] = { id: data.user.id, c };
-    mates.push(c);
-  }
-  const o1 = (await mates[0].rpc("create_org", { p_name: "Shared" })).data;
-  const o2 = (await mates[1].rpc("create_org", { p_name: "Shared 2" })).data;
-  orgs.push(o1);
-  check("same-domain colleague joins the same workspace", !!o1 && o1 === o2, `${o1} vs ${o2}`);
-  const role2 = (await mates[1].from("org_members").select("role").eq("user_id", users.mate2.id).maybeSingle()).data?.role;
-  check("colleague joins as editor, not owner", role2 === "editor", String(role2));
-  check("different domain does not see the shared workspace", !(await b.from("orgs").select("id").eq("id", o1).maybeSingle()).data);
+  check("each owner sees their own workspace", !!(await a.from("orgs").select("id").eq("id", orgA).maybeSingle()).data && !!(await b.from("orgs").select("id").eq("id", orgB).maybeSingle()).data);
+  check("a person cannot see another person's workspace", !(await b.from("orgs").select("id").eq("id", orgA).maybeSingle()).data);
+  check("a person on the allowlist cannot create a workspace by themselves", !!(await users.viewer.c.rpc("create_org", { p_name: "mine" })).error);
+  await admin.from("app_admins").insert({ user_id: users.master.id });
+  const o3 = (await users.master.c.rpc("create_org", { p_name: "Made by the administrator" })).data;
+  if (o3) orgs.push(o3);
+  check("the administrator can create a workspace", !!o3);
+  check("clients cannot read the administrator list", !!(await a.from("app_admins").select("user_id")).error || ((await a.from("app_admins").select("user_id")).data ?? []).length === 0);
+  check("clients cannot make themselves administrator", !!(await a.from("app_admins").insert({ user_id: users.a.id })).error);
   check("e-mail not on the allowlist cannot get a workspace", !!(await users.outsider.c.rpc("create_org", { p_name: "X" })).error);
   check("clients cannot read the allowlist", !!(await a.from("allowed_emails").select("email")).error || ((await a.from("allowed_emails").select("email")).data ?? []).length === 0);
   check("clients cannot add themselves to the allowlist", !!(await users.outsider.c.from("allowed_emails").insert({ email: "x@y.test" })).error);
-  check("a second workspace for the same user is refused", !!(await a.rpc("create_org", { p_name: "A2" })).error);
 
   const graph = { nodes: [], edges: [] };
   const ins = await a.from("automations").insert({ org_id: orgA, name: "A-secret", draft_graph: graph }).select().single();

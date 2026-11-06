@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
-import { Home, Users, Workflow, Inbox, Settings, Menu, X, LogOut } from "lucide-react";
+import { Home, Users, Workflow, Inbox, Settings, Menu, X, LogOut, Shield } from "lucide-react";
 import { LANGS, useI18n, type Key } from "@/lib/i18n";
 import { dismissNotice, selectAccount, selectOrg, useHydrated, useNotice, useStore } from "@/lib/store";
 import { useSyncFailed } from "@/lib/remote";
@@ -29,8 +29,11 @@ export function AppShell({ children }: { children: ReactNode }) {
   const notice = useNotice();
   const unread = conversations.reduce((n, c) => n + (c.state === "open" ? c.unread : 0), 0);
   const [email, setEmail] = useState<string | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
   useEffect(() => {
-    if (remoteEnabled) supabase().auth.getUser().then(({ data }) => setEmail(data.user?.email ?? null));
+    if (!remoteEnabled) return;
+    supabase().auth.getUser().then(({ data }) => setEmail(data.user?.email ?? null));
+    fetch("/api/admin?me=1").then((r) => setIsAdmin(r.ok)).catch(() => {});
   }, []);
   if (BARE.some((p) => path === p || path.startsWith(p + "/"))) return <>{children}</>;
 
@@ -59,6 +62,17 @@ export function AppShell({ children }: { children: ReactNode }) {
           </Link>
         );
       })}
+      {isAdmin && (
+        <Link
+          href="/admin"
+          onClick={() => setOpen(false)}
+          aria-current={path.startsWith("/admin") ? "page" : undefined}
+          className={cx("flex h-10 items-center gap-3 rounded-md px-3 text-sm font-medium transition-colors duration-fast", path.startsWith("/admin") ? "bg-accent-soft text-accent" : "text-text-muted hover:bg-surface hover:text-text")}
+        >
+          <Shield className="h-5 w-5" aria-hidden />
+          <span className="flex-1">{t("nav.admin")}</span>
+        </Link>
+      )}
     </nav>
   );
 
@@ -166,7 +180,16 @@ export function AppShell({ children }: { children: ReactNode }) {
           </p>
         )}
         <main id="main" className="min-w-0 flex-1">
-          {ready ? children : <p role="status" className="p-8 text-sm text-text-muted">{t("sync.setup")}</p>}
+          {!ready ? (
+            <p role="status" className="p-8 text-sm text-text-muted">{t("sync.setup")}</p>
+          ) : remoteEnabled && workspaces.length === 0 && !path.startsWith("/admin") ? (
+            <div className="mx-auto max-w-lg p-8">
+              <h1 className="mb-2 text-xl font-semibold">{t("ws.none.t")}</h1>
+              <p className="text-sm text-text-muted">{t("ws.none.d")}</p>
+            </div>
+          ) : (
+            children
+          )}
         </main>
       </div>
 

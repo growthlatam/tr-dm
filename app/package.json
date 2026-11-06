@@ -11,6 +11,7 @@
     "db:test": "node --env-file=.env.local scripts/test-rls.mjs",
     "db:seed": "node --env-file=.env.local scripts/seed.mjs",
     "db:allow": "node --env-file=.env.local scripts/allow-email.mjs",
+    "db:admin": "node --env-file=.env.local scripts/admin-user.mjs",
     "db:forget": "node --env-file=.env.local scripts/delete-contact.mjs",
     "test:engine": "tsx scripts/test-engine.ts && node scripts/test-meta.mjs",
     "db:demo-inbox": "node --env-file=.env.local scripts/demo-inbox.mjs"
