@@ -1,0 +1,25 @@
+# dependencies and build output
+node_modules/
+.next/
+*.tsbuildinfo
+.vercel/
+
+# secrets and machine-specific files: never commit
+.env
+.env.*
+!.env.example
+.ca-bundle.pem
+*.pem
+*.tmp
+.DS_Store
+
+# reference screenshots of another company's product: kept locally for comparison, never published
+screens/
+
+# planning notes that describe the product this tool was modelled on: kept locally, not published
+recon.md
+capture-checklist.md
+architecture.md
+features.csv
+design/components.md
+design/tokens.json

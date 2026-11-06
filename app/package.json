@@ -1,0 +1,40 @@
+{
+  "name": "tr-dm-automation",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3100",
+    "build": "next build",
+    "start": "next start -p 3100",
+    "typecheck": "tsc --noEmit",
+    "db:migrate": "node --env-file=.env.local scripts/migrate.mjs",
+    "db:test": "node --env-file=.env.local scripts/test-rls.mjs",
+    "db:seed": "node --env-file=.env.local scripts/seed.mjs",
+    "db:allow": "node --env-file=.env.local scripts/allow-email.mjs",
+    "db:forget": "node --env-file=.env.local scripts/delete-contact.mjs",
+    "test:engine": "tsx scripts/test-engine.ts && node scripts/test-meta.mjs",
+    "db:demo-inbox": "node --env-file=.env.local scripts/demo-inbox.mjs"
+  },
+  "dependencies": {
+    "@supabase/ssr": "^0.12.7",
+    "@supabase/supabase-js": "^2.119.0",
+    "@xyflow/react": "^12.12.1",
+    "lucide-react": "^0.468.0",
+    "next": "^15.1.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/pg": "^8.23.1",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "autoprefixer": "^10.4.20",
+    "pg": "^8.23.1",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.17",
+    "tsx": "^4.23.15",
+    "typescript": "^5.7.0"
+  }
+}
