@@ -1,14 +1,14 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import { useI18n, type Key } from "@/lib/i18n";
-import { Badge, Button, Card, Input } from "@/components/ui";
+import { Badge, Button, Card, Input, Modal } from "@/components/ui";
 import { PageHeader } from "@/components/shell";
 
 const ROLES = ["owner", "admin", "editor", "agent", "viewer"] as const;
 type Role = (typeof ROLES)[number];
 type Data = {
   me: string;
-  workspaces: { id: string; name: string }[];
+  workspaces: { id: string; name: string; counts: { members: number; accounts: number; automations: number; contacts: number } }[];
   people: { email: string; note: string | null; user_id: string | null; last_sign_in: string | null; is_admin: boolean; memberships: { org_id: string; role: string }[] }[];
 };
 
@@ -24,6 +24,8 @@ export default function AdminPage() {
   const [note, setNote] = useState("");
   const [org, setOrg] = useState("");
   const [role, setRole] = useState<Role>("editor");
+  const [del, setDel] = useState<{ id: string; name: string } | null>(null);
+  const [delName, setDelName] = useState("");
 
   const load = useCallback(async () => {
     const r = await fetch("/api/admin");
@@ -75,19 +77,36 @@ export default function AdminPage() {
               <h2 id="adm-ws" className="mb-3 text-lg font-semibold">{t("adm.ws")}</h2>
               <Card className="divide-y divide-border">
                 {data.workspaces.map((w) => (
-                  <form
-                    key={w.id}
-                    className="flex flex-wrap items-center gap-2 px-4 py-3"
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      void act({ action: "rename_workspace", org_id: w.id, name: names[w.id] ?? w.name });
-                    }}
-                  >
-                    <Input aria-label={t("adm.ws.name")} value={names[w.id] ?? w.name} maxLength={120} onChange={(e) => setNames({ ...names, [w.id]: e.target.value })} className="min-w-[14rem] flex-1" />
-                    <Button type="submit" variant="secondary" size="sm" disabled={busy || !(names[w.id] ?? "").trim() || names[w.id] === w.name}>
-                      {t("adm.ws.save")}
-                    </Button>
-                  </form>
+                  <div key={w.id} className="space-y-2 px-4 py-3">
+                    <form
+                      className="flex flex-wrap items-center gap-2"
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        void act({ action: "rename_workspace", org_id: w.id, name: names[w.id] ?? w.name });
+                      }}
+                    >
+                      <Input aria-label={t("adm.ws.name")} value={names[w.id] ?? w.name} maxLength={120} onChange={(e) => setNames({ ...names, [w.id]: e.target.value })} className="min-w-[14rem] flex-1" />
+                      <Button type="submit" variant="secondary" size="sm" disabled={busy || !(names[w.id] ?? "").trim() || names[w.id] === w.name}>
+                        {t("adm.ws.save")}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="danger"
+                        size="sm"
+                        disabled={busy}
+                        onClick={() => {
+                          setDelName("");
+                          setDel({ id: w.id, name: w.name });
+                        }}
+                      >
+                        {t("adm.del")}
+                      </Button>
+                    </form>
+                    <p className="flex flex-wrap items-center gap-2 text-xs text-text-muted">
+                      {t("adm.ws.stats", { members: w.counts.members, accounts: w.counts.accounts, automations: w.counts.automations, contacts: w.counts.contacts })}
+                      {w.counts.accounts + w.counts.automations + w.counts.contacts === 0 && <Badge tone="muted">{t("adm.ws.empty")}</Badge>}
+                    </p>
+                  </div>
                 ))}
                 <form
                   className="flex flex-wrap items-end gap-2 px-4 py-3"
@@ -209,6 +228,33 @@ export default function AdminPage() {
           </>
         )}
       </div>
+      <Modal open={!!del} onClose={() => setDel(null)} title={t("adm.del.t")} closeLabel={t("common.close")}>
+        {del && (
+          <div className="space-y-4">
+            <p className="text-sm">{t("adm.del.d", { name: del.name })}</p>
+            <div>
+              <label htmlFor="del-name" className="mb-1 block text-xs font-medium text-text-muted">
+                {t("adm.del.type")}
+              </label>
+              <Input id="del-name" value={delName} autoComplete="off" onChange={(e) => setDelName(e.target.value)} placeholder={del.name} />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="secondary" onClick={() => setDel(null)}>
+                {t("adm.cancel")}
+              </Button>
+              <Button
+                variant="danger"
+                disabled={busy || delName.trim() !== del.name.trim()}
+                onClick={async () => {
+                  if (await act({ action: "delete_workspace", org_id: del.id, confirm_name: delName.trim() })) setDel(null);
+                }}
+              >
+                {t("adm.del.go")}
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

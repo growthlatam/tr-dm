@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
-import { requireAdmin } from "@/lib/admin";
+import { deleteWorkspace, requireAdmin, workspaceCounts } from "@/lib/admin";
 
 const ROLES = ["owner", "admin", "editor", "agent", "viewer"] as const;
 const email = z.string().trim().toLowerCase().email().max(200);
@@ -11,6 +11,7 @@ const Body = z.discriminatedUnion("action", [
   z.object({ action: z.literal("remove_user"), email }),
   z.object({ action: z.literal("create_workspace"), name: z.string().trim().min(1).max(120) }),
   z.object({ action: z.literal("rename_workspace"), org_id: uuid, name: z.string().trim().min(1).max(120) }),
+  z.object({ action: z.literal("delete_workspace"), org_id: uuid, confirm_name: z.string().max(120) }),
   z.object({ action: z.literal("set_membership"), user_id: uuid, org_id: uuid, role: z.enum(ROLES).nullable() }),
 ]);
 
@@ -47,7 +48,8 @@ export async function GET(req: NextRequest) {
       memberships: u ? (members.data ?? []).filter((m) => m.user_id === u.id).map((m) => ({ org_id: m.org_id as string, role: m.role as string })) : [],
     };
   });
-  return NextResponse.json({ me: g.ctx.email, workspaces: orgs.data, people });
+  const counts = await workspaceCounts(db, (orgs.data ?? []).map((o) => o.id as string));
+  return NextResponse.json({ me: g.ctx.email, workspaces: (orgs.data ?? []).map((o) => ({ ...o, counts: counts[o.id as string] })), people });
 }
 
 export async function POST(req: NextRequest) {
@@ -118,6 +120,16 @@ export async function POST(req: NextRequest) {
       case "rename_workspace": {
         const r = await db.from("orgs").update({ name: b.name }).eq("id", b.org_id);
         if (r.error) return fail(r.error);
+        return NextResponse.json({ ok: true });
+      }
+      case "delete_workspace": {
+        // the name must be typed exactly: this removes the workspace's accounts, automations, contacts, messages and files for good
+        const o = await db.from("orgs").select("id,name").eq("id", b.org_id).maybeSingle();
+        if (o.error) return fail(o.error);
+        if (!o.data) return NextResponse.json({ error: "not found" }, { status: 404 });
+        if (b.confirm_name.trim() !== String(o.data.name).trim()) return NextResponse.json({ error: "name does not match" }, { status: 400 });
+        console.warn("[admin] deleting workspace", o.data.id, "by", g.ctx.email);
+        await deleteWorkspace(db, b.org_id);
         return NextResponse.json({ ok: true });
       }
       case "set_membership": {

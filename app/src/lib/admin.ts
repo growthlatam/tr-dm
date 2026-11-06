@@ -23,3 +23,35 @@ export async function requireAdmin(req: NextRequest): Promise<{ ok: true; ctx: A
   }
   return { ok: true, ctx: { db, userId: data.user.id, email: (data.user.email ?? "").toLowerCase() } };
 }
+
+export type WorkspaceCounts = { members: number; accounts: number; automations: number; contacts: number };
+
+/** What lives in each workspace, so the administrator can tell an empty leftover from the real one. */
+export async function workspaceCounts(db: SupabaseClient, orgIds: string[]): Promise<Record<string, WorkspaceCounts>> {
+  const out: Record<string, WorkspaceCounts> = {};
+  await Promise.all(
+    orgIds.map(async (id) => {
+      const n = async (table: string, notDisconnected = false) => {
+        let q = db.from(table).select("id", { count: "exact", head: true }).eq("org_id", id);
+        if (notDisconnected) q = q.neq("status", "disconnected");
+        return (await q).count ?? 0;
+      };
+      const [members, accounts, automations, contacts] = await Promise.all([n("org_members"), n("channel_accounts", true), n("automations"), n("contacts")]);
+      out[id] = { members, accounts, automations, contacts };
+    }),
+  );
+  return out;
+}
+
+/** Deletes a workspace and everything in it (the database cascades), plus its stored files. The caller has already checked the name. */
+export async function deleteWorkspace(db: SupabaseClient, orgId: string): Promise<void> {
+  // stored PDFs live under <workspace id>/ in the private bucket
+  for (let i = 0; i < 20; i++) {
+    const { data } = await db.storage.from("assets").list(orgId, { limit: 100 });
+    if (!data?.length) break;
+    const rm = await db.storage.from("assets").remove(data.map((f) => `${orgId}/${f.name}`));
+    if (rm.error) throw new Error("storage: " + rm.error.message);
+  }
+  const r = await db.from("orgs").delete().eq("id", orgId);
+  if (r.error) throw new Error("delete: " + r.error.message);
+}
