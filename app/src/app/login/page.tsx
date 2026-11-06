@@ -38,12 +38,9 @@ export default function LoginPage() {
   return (
     <main className="grid min-h-screen place-items-center bg-canvas px-4 py-10 text-text">
       <Card className="w-full max-w-sm space-y-4 p-6">
-        <div className="flex items-center gap-2">
-          <span aria-hidden className="grid h-8 w-8 place-items-center rounded-md bg-accent text-sm font-bold text-on-accent">
-            DM
-          </span>
-          <h1 className="text-lg font-bold">{t("auth.title.signin")}</h1>
-        </div>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/brand/tr-echo-light.svg" alt={t("app.name")} className="h-14 w-auto" />
+        <h1 className="text-xl font-medium text-accent">{t("auth.title.signin")}</h1>
         <form onSubmit={go} className="space-y-3">
           <Field label={t("auth.email")} htmlFor="a-email" hint={t("auth.hint.allowed")}>
             <Input id="a-email" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} />

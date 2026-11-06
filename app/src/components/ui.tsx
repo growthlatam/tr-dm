@@ -11,8 +11,8 @@ type BtnProps = ButtonHTMLAttributes<HTMLButtonElement> & {
 };
 export function Button({ variant = "primary", size = "md", loading, className, children, disabled, ...p }: BtnProps) {
   const v = {
-    primary: "bg-accent text-on-accent hover:opacity-90",
-    secondary: "bg-surface-raised text-text border border-border-input hover:bg-surface",
+    primary: "bg-signature text-on-signature hover:ring-2 hover:ring-signature hover:ring-offset-2",
+    secondary: "bg-surface-raised text-accent border border-accent hover:bg-accent-soft",
     ghost: "text-text hover:bg-surface",
     danger: "bg-danger text-white hover:opacity-90",
   }[variant];
@@ -23,7 +23,7 @@ export function Button({ variant = "primary", size = "md", loading, className, c
       disabled={disabled || loading}
       aria-busy={loading || undefined}
       className={cx(
-        "inline-flex items-center justify-center gap-2 rounded-md font-semibold transition-colors duration-fast disabled:opacity-50 disabled:cursor-not-allowed",
+        "inline-flex items-center justify-center gap-2 rounded-pill font-medium transition-colors duration-fast disabled:opacity-50 disabled:cursor-not-allowed",
         v,
         s,
         className,
@@ -98,7 +98,7 @@ export function Field({
 }
 
 const inputBase =
-  "w-full rounded-md border border-border-input bg-bg px-3 text-sm text-text placeholder:text-text-muted focus-visible:outline-accent disabled:opacity-60";
+  "w-full rounded-md border border-accent bg-bg px-4 text-sm text-text placeholder:text-text-muted focus-visible:outline-accent disabled:opacity-60";
 export function Input({ invalid, className, ...p }: InputHTMLAttributes<HTMLInputElement> & { invalid?: boolean }) {
   return <input {...p} aria-invalid={invalid || undefined} className={cx(inputBase, "h-10", invalid && "border-danger", className)} />;
 }
@@ -107,7 +107,7 @@ export function Textarea({ invalid, className, ...p }: TextareaHTMLAttributes<HT
 }
 
 export function Card({ className, children }: { className?: string; children: ReactNode }) {
-  return <div className={cx("rounded-lg border border-border bg-surface-raised shadow-card", className)}>{children}</div>;
+  return <div className={cx("rounded-xl bg-surface-raised", className)}>{children}</div>;
 }
 
 export function EmptyState({ title, text, action }: { title: string; text: string; action?: ReactNode }) {
@@ -172,7 +172,7 @@ export function Modal({ open, onClose, title, children, closeLabel }: { open: bo
 
 export function Tabs<T extends string>({ value, onChange, items, label }: { value: T; onChange: (v: T) => void; items: { value: T; label: string; dot?: boolean }[]; label: string }) {
   return (
-    <div role="tablist" aria-label={label} className="inline-flex rounded-md border border-border bg-surface p-0.5">
+    <div role="tablist" aria-label={label} className="inline-flex rounded-pill bg-bg p-1">
       {items.map((i) => (
         <button
           key={i.value}
@@ -180,8 +180,8 @@ export function Tabs<T extends string>({ value, onChange, items, label }: { valu
           aria-selected={value === i.value}
           onClick={() => onChange(i.value)}
           className={cx(
-            "relative h-8 rounded-sm px-3 text-sm font-medium transition-colors duration-fast",
-            value === i.value ? "bg-bg shadow-card text-text" : "text-text-muted hover:text-text",
+            "relative h-9 rounded-pill px-4 text-sm font-medium transition-colors duration-fast",
+            value === i.value ? "bg-accent text-on-accent" : "text-text hover:bg-accent-soft",
           )}
         >
           {i.label}

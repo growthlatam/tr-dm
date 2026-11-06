@@ -49,8 +49,8 @@ export function AppShell({ children }: { children: ReactNode }) {
             onClick={() => setOpen(false)}
             aria-current={active ? "page" : undefined}
             className={cx(
-              "flex h-10 items-center gap-3 rounded-md px-3 text-sm font-medium transition-colors duration-fast",
-              active ? "bg-accent-soft text-accent" : "text-text-muted hover:bg-surface hover:text-text",
+              "flex h-11 items-center gap-3 rounded-lg px-3 text-sm font-medium transition-colors duration-fast",
+              active ? "bg-bg text-accent" : "text-on-accent hover:bg-accent-soft hover:text-accent",
             )}
           >
             <Icon className="h-5 w-5" aria-hidden />
@@ -68,7 +68,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           href="/admin"
           onClick={() => setOpen(false)}
           aria-current={path.startsWith("/admin") ? "page" : undefined}
-          className={cx("flex h-10 items-center gap-3 rounded-md px-3 text-sm font-medium transition-colors duration-fast", path.startsWith("/admin") ? "bg-accent-soft text-accent" : "text-text-muted hover:bg-surface hover:text-text")}
+          className={cx("flex h-11 items-center gap-3 rounded-lg px-3 text-sm font-medium transition-colors duration-fast", path.startsWith("/admin") ? "bg-bg text-accent" : "text-on-accent hover:bg-accent-soft hover:text-accent")}
         >
           <Shield className="h-5 w-5" aria-hidden />
           <span className="flex-1">{t("nav.admin")}</span>
@@ -79,17 +79,12 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   const side = (
     <>
-      <div className="flex h-header items-center gap-2 border-b border-border px-4">
-        <span aria-hidden className="grid h-8 w-8 place-items-center rounded-md bg-accent text-sm font-bold text-on-accent">
-          DM
-        </span>
-        <div className="leading-tight">
-          <div className="text-sm font-semibold">{t("app.name")}</div>
-          <div className="text-xs text-text-muted">{t("app.org")}</div>
-        </div>
+      <div className="px-5 pb-2 pt-6">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/brand/tr-echo-dark.svg" alt={t("app.name")} className="h-12 w-auto" />
       </div>
       {remoteEnabled && ready && (
-        <div className="space-y-2 border-b border-border p-3">
+        <div className="space-y-3 p-3">
           {workspaces.length > 1 && (
             <div>
               <label htmlFor="ws-sel" className="mb-1 block text-xs font-medium text-text-muted">
@@ -105,9 +100,9 @@ export function AppShell({ children }: { children: ReactNode }) {
             </div>
           )}
           <div>
-            <div className="mb-1 text-xs font-medium text-text-muted">{t("switch.acct")}</div>
+            <div className="mb-1 text-xs font-medium text-on-accent">{t("switch.acct")}</div>
             {accounts.length === 0 ? (
-              <p className="text-xs text-text-muted">{t("switch.none")}</p>
+              <p className="text-xs text-on-accent">{t("switch.none")}</p>
             ) : (
               <AccountPicker accounts={accounts} portfolios={portfolios} value={activeAccount} onChange={selectAccount} label={t("switch.acct")} />
             )}
@@ -115,25 +110,25 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
       )}
       {nav}
-      <div className="border-t border-border p-3">
+      <div className="p-3">
         {remoteEnabled && email && (
           <form action="/auth/signout" method="post" className="mb-3 flex items-center gap-2">
-            <span className="min-w-0 flex-1 truncate text-xs text-text-muted" title={email}>
+            <span className="min-w-0 flex-1 truncate text-xs text-on-accent" title={email}>
               {email}
             </span>
-            <button type="submit" aria-label={t("auth.signout")} title={t("auth.signout")} className="grid h-8 w-8 shrink-0 place-items-center rounded-md hover:bg-surface">
+            <button type="submit" aria-label={t("auth.signout")} title={t("auth.signout")} className="grid h-8 w-8 shrink-0 place-items-center rounded-pill hover:bg-bg hover:text-accent">
               <LogOut className="h-4 w-4" aria-hidden />
             </button>
           </form>
         )}
-        <label htmlFor="ui-lang" className="mb-1 block text-xs font-medium text-text-muted">
+        <label htmlFor="ui-lang" className="mb-1 block text-xs font-medium text-on-accent">
           {t("lang.label")}
         </label>
         <select
           id="ui-lang"
           value={lang}
           onChange={(e) => setLang(e.target.value as typeof lang)}
-          className="h-9 w-full rounded-md border border-border-input bg-bg px-2 text-sm"
+          className="h-9 w-full rounded-md border border-bg bg-bg px-2 text-sm text-text"
         >
           {LANGS.map((l) => (
             <option key={l.code} value={l.code} lang={l.code}>
@@ -150,14 +145,15 @@ export function AppShell({ children }: { children: ReactNode }) {
       <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-50 focus:rounded-md focus:bg-bg focus:px-3 focus:py-2">
         {t("nav.skip")}
       </a>
-      <aside className="sticky top-0 hidden h-screen w-sidebar shrink-0 flex-col border-r border-border bg-bg lg:flex">{side}</aside>
+      <aside className="sticky top-4 m-4 hidden h-[calc(100vh-2rem)] w-sidebar shrink-0 flex-col overflow-y-auto rounded-xl bg-accent text-on-accent lg:flex">{side}</aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-header items-center gap-3 border-b border-border bg-bg px-4 lg:hidden">
           <button onClick={() => setOpen(true)} aria-label={t("nav.menu")} className="grid h-10 w-10 place-items-center rounded-md hover:bg-surface">
             <Menu className="h-5 w-5" aria-hidden />
           </button>
-          <span className="text-sm font-semibold">{t("app.name")}</span>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/brand/tr-echo-light.svg" alt={t("app.name")} className="h-8 w-auto" />
         </header>
         {syncFailed && (
           <p role="alert" className="bg-danger-soft px-4 py-2 text-sm text-danger">
@@ -190,7 +186,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       {open && (
         <div className="fixed inset-0 z-40 lg:hidden" role="dialog" aria-modal="true" aria-label={t("nav.menu")}>
           <div className="absolute inset-0 bg-black/40" onClick={() => setOpen(false)} />
-          <div className="absolute inset-y-0 left-0 flex w-72 flex-col bg-bg shadow-pop">
+          <div className="absolute inset-y-0 left-0 flex w-72 flex-col overflow-y-auto bg-accent text-on-accent shadow-pop">
             <button onClick={() => setOpen(false)} aria-label={t("common.close")} className="absolute right-2 top-3 grid h-8 w-8 place-items-center rounded-md hover:bg-surface">
               <X className="h-4 w-4" aria-hidden />
             </button>
@@ -205,7 +201,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 export function PageHeader({ title, actions }: { title: string; actions?: ReactNode }) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 px-4 pb-4 pt-6 sm:px-8">
-      <h1 className="text-xl font-bold">{title}</h1>
+      <h1 className="text-display font-medium text-accent">{title}</h1>
       {actions}
     </div>
   );

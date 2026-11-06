@@ -43,7 +43,7 @@ export default {
         xl: ["var(--text-xl)", "var(--leading-xl)"],
         display: ["var(--text-display)", "var(--leading-display)"],
       },
-      borderRadius: { sm: "var(--radius-sm)", md: "var(--radius-md)", lg: "var(--radius-lg)", pill: "var(--radius-pill)" },
+      borderRadius: { sm: "var(--radius-sm)", md: "var(--radius-md)", lg: "var(--radius-lg)", xl: "var(--radius-xl)", pill: "var(--radius-pill)" },
       boxShadow: { card: "var(--shadow-card)", pop: "var(--shadow-pop)" },
       transitionDuration: { fast: "var(--motion-fast)", base: "var(--motion-base)" },
       transitionTimingFunction: { brand: "var(--motion-ease)" },
