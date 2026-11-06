@@ -9,14 +9,24 @@ const Body = z.object({ email: z.string().trim().toLowerCase().email().max(320) 
 // Two buckets, both keyed on the CALLER: all tries from one address, and tries of one address by one caller. There is no bucket
 // on the e-mail alone, so nobody can lock a colleague out by repeating their address.
 const hits = new Map<string, number[]>();
+const MAX_KEYS = 5000;
+let lastPrune = 0;
 function tooMany(key: string, max: number) {
   const now = Date.now();
   const list = (hits.get(key) ?? []).filter((t) => now - t < 60_000);
   list.push(now);
+  hits.delete(key); // re-insert so Map order is "least recently used first"
   hits.set(key, list);
-  if (hits.size > 5000) {
-    // drop only the entries whose window has passed, never everything at once
-    for (const [k, v] of hits) if (v[v.length - 1] < now - 60_000) hits.delete(k);
+  // Hard bound on memory: prune expired keys at most every 30 s, and if the map is still over the cap drop the oldest keys.
+  if (hits.size > MAX_KEYS) {
+    if (now - lastPrune > 30_000) {
+      lastPrune = now;
+      for (const [k, v] of hits) if (v[v.length - 1] < now - 60_000) hits.delete(k);
+    }
+    for (const k of hits.keys()) {
+      if (hits.size <= MAX_KEYS * 0.9) break;
+      hits.delete(k);
+    }
   }
   return list.length > max;
 }
@@ -33,8 +43,9 @@ export async function POST(req: NextRequest) {
   const parsed = Body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "invalid" }, { status: 400 });
   const { email } = parsed.data;
-  // Vercel sets x-real-ip itself (a client cannot spoof it); fall back to the forwarded chain only outside Vercel.
-  const ip = req.headers.get("x-real-ip") ?? req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "?";
+  // Only the address the platform sets: Vercel writes x-real-ip itself, a client cannot choose it. Anywhere else everyone shares
+  // one bucket ("?"), which is stricter, never weaker. x-forwarded-for is client-controlled and is not trusted.
+  const ip = req.headers.get("x-real-ip") ?? "?";
   if (tooMany("ip:" + ip, 20) || tooMany("pair:" + ip + "|" + email, 6)) return NextResponse.json({ error: "slow down" }, { status: 429 });
 
   const admin = createClient(url, key, { auth: { persistSession: false } });
