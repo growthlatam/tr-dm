@@ -8,6 +8,7 @@ import { dismissNotice, selectAccount, selectOrg, useHydrated, useNotice, useSto
 import { useSyncFailed } from "@/lib/remote";
 import { remoteEnabled, supabase } from "@/lib/supabase/client";
 import { Button, Modal, cx } from "./ui";
+import { AccountPicker } from "./account-picker";
 
 const BARE = ["/login", "/auth", "/privacy", "/data-deletion"];
 
@@ -104,27 +105,11 @@ export function AppShell({ children }: { children: ReactNode }) {
             </div>
           )}
           <div>
-            <label htmlFor="acct-sel" className="mb-1 block text-xs font-medium text-text-muted">
-              {t("switch.acct")}
-            </label>
+            <div className="mb-1 text-xs font-medium text-text-muted">{t("switch.acct")}</div>
             {accounts.length === 0 ? (
               <p className="text-xs text-text-muted">{t("switch.none")}</p>
             ) : (
-              <select id="acct-sel" value={activeAccount ?? ""} onChange={(e) => selectAccount(e.target.value)} className="h-9 w-full rounded-md border border-border-input bg-bg px-2 text-sm">
-                {[...portfolios, { id: "", name: "—", orgId: "" }].map((p) => {
-                  const list = accounts.filter((a) => (a.portfolioId ?? "") === p.id);
-                  if (!list.length) return null;
-                  return (
-                    <optgroup key={p.id || "none"} label={p.name}>
-                      {list.map((a) => (
-                        <option key={a.id} value={a.id}>
-                          @{a.username}
-                        </option>
-                      ))}
-                    </optgroup>
-                  );
-                })}
-              </select>
+              <AccountPicker accounts={accounts} portfolios={portfolios} value={activeAccount} onChange={selectAccount} label={t("switch.acct")} />
             )}
           </div>
         </div>
