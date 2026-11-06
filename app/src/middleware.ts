@@ -5,6 +5,20 @@ const PUBLIC = ["/login", "/api/login", "/api/webhooks", "/api/jobs", "/auth", "
 
 /** Keeps the session fresh and sends signed-out visitors to /login. Does nothing in demo mode (no keys). */
 export async function middleware(req: NextRequest) {
+  // One address only. Login and the Meta connection use cookies that belong to one host, and Meta sends people back to the
+  // configured address: someone who started on a long deployment address would come back signed out ("link expired").
+  const site = (() => {
+    try {
+      return process.env.NEXT_PUBLIC_SITE_URL ? new URL(process.env.NEXT_PUBLIC_SITE_URL) : null;
+    } catch {
+      return null;
+    }
+  })();
+  const host = req.headers.get("host") ?? "";
+  if (site && host && host !== site.host && !/^(localhost|127\.0\.0\.1|\[::1\])(:|$)/.test(host) && (req.method === "GET" || req.method === "HEAD")) {
+    const to = new URL(req.nextUrl.pathname + req.nextUrl.search, site.origin);
+    return NextResponse.redirect(to, 308);
+  }
   if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) return NextResponse.next();
   let res = NextResponse.next({ request: req });
   const sb = createServerClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY, {
