@@ -286,7 +286,7 @@ export function Wizard({ existing }: { existing?: Automation }) {
               <Tabs label={t("wiz.lang")} value={dmLang} onChange={setDmLang} items={langItems} />
             </div>
             {dmLang !== defaultLang && !curText.trim() && <p className="text-xs text-warning">{t("wiz.lang.missing")}</p>}
-            <Field label={t("wiz.dm.text")} htmlFor="wiz-dm" error={dmLang === defaultLang ? errors.dm : null} hint={t("wiz.dm.chars", { n: MAX_DM - curText.length })}>
+            <Field label={t("wiz.dm.text")} htmlFor="wiz-dm" error={dmLang === defaultLang ? errors.dm : null} hint={`${t("wiz.dm.chars", { n: MAX_DM - curText.length })} · ${t("wiz.dm.vars")}`}>
               <Textarea
                 id="wiz-dm"
                 rows={5}

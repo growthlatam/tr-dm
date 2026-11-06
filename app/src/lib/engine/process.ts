@@ -6,6 +6,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { isComment, matchTrigger, type Graph, type TriggerSource } from "../flow";
 import type { Lang } from "../i18n";
 import { normalizeEvent, isStartWord, isStopWord, STOP_CONFIRMATION, type Inbound } from "./normalize";
+import { fillVars } from "../vars";
 import { runGraph, triggerNode, type Effect, type RunOutput, type Snapshot, type Step } from "./run";
 
 type DB = SupabaseClient;
@@ -338,14 +339,14 @@ async function finishRun(db: DB, f: Finish) {
   for (const e of out.effects) {
     switch (e.type) {
       case "public_reply":
-        await queueMessage(db, acc, conv.id, { kind: "public_reply", body: { text: e.text, comment_id: f.inb?.commentId ?? null }, automationId: auto.id, nodeId: e.nodeId, runId });
+        await queueMessage(db, acc, conv.id, { kind: "public_reply", body: { text: fillVars(e.text, contact), comment_id: f.inb?.commentId ?? null }, automationId: auto.id, nodeId: e.nodeId, runId });
         break;
       case "message": {
         const recipient = e.mode === "private_reply" ? { comment_id: f.inb?.commentId ?? null } : { id: contact.external_id };
         if (e.text) {
           await queueMessage(db, acc, conv.id, {
             kind: "text",
-            body: { text: e.text, button: e.button ?? null, payload: e.button ? `tap:${auto.id}:${e.nodeId}:${runId}` : null, mode: e.mode, recipient },
+            body: { text: fillVars(e.text, contact), button: e.button ?? null, payload: e.button ? `tap:${auto.id}:${e.nodeId}:${runId}` : null, mode: e.mode, recipient },
             automationId: auto.id, nodeId: e.nodeId, runId,
             scheduledFor: e.mode === "private_reply" ? heldUntil ?? undefined : undefined,
           });

@@ -4,10 +4,10 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { Home, Users, Workflow, Inbox, Settings, Menu, X, LogOut } from "lucide-react";
 import { LANGS, useI18n, type Key } from "@/lib/i18n";
-import { selectAccount, selectOrg, useHydrated, useStore } from "@/lib/store";
+import { dismissNotice, selectAccount, selectOrg, useHydrated, useNotice, useStore } from "@/lib/store";
 import { useSyncFailed } from "@/lib/remote";
 import { remoteEnabled, supabase } from "@/lib/supabase/client";
-import { cx } from "./ui";
+import { Button, Modal, cx } from "./ui";
 
 const BARE = ["/login", "/auth", "/privacy", "/data-deletion"];
 
@@ -26,6 +26,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const { conversations, workspaces, accounts, portfolios, activeOrg, activeAccount } = useStore();
   const ready = useHydrated();
   const syncFailed = useSyncFailed();
+  const notice = useNotice();
   const unread = conversations.reduce((n, c) => n + (c.state === "open" ? c.unread : 0), 0);
   const [email, setEmail] = useState<string | null>(null);
   useEffect(() => {
@@ -168,6 +169,15 @@ export function AppShell({ children }: { children: ReactNode }) {
           {ready ? children : <p role="status" className="p-8 text-sm text-text-muted">{t("sync.setup")}</p>}
         </main>
       </div>
+
+      <Modal open={!!notice} onClose={dismissNotice} title={notice?.ok ? t("pub.ok.t") : t("pub.fail.t")} closeLabel={t("common.close")}>
+        <p role="status" className="mb-5 text-sm">
+          {notice?.ok ? t("pub.ok.d", { name: notice.name, account: notice.account ? t("pub.on", { account: notice.account }) : "" }) : t("pub.fail.d")}
+        </p>
+        <div className="flex justify-end">
+          <Button onClick={dismissNotice}>{t("pub.ok")}</Button>
+        </div>
+      </Modal>
 
       {open && (
         <div className="fixed inset-0 z-40 lg:hidden" role="dialog" aria-modal="true" aria-label={t("nav.menu")}>

@@ -4,6 +4,7 @@
 import { useSyncExternalStore } from "react";
 import type { Lang } from "./i18n";
 import * as remote from "./remote";
+import { fillVars } from "./vars";
 import { remoteEnabled } from "./supabase/client";
 import { type PdfRef, buildGraph, isComment, matchTrigger, normalize, triggerOf, uid as fuid, type FlowAction, type FlowNode, type Graph, type PostScope, type Row } from "./flow";
 
@@ -364,6 +365,9 @@ export function editGraph(a: Automation): Graph {
   return a.draftGraph ?? publishedGraph(a);
 }
 
+/** What the message variables can use: a first name only when the contact has a real name, not just a handle. */
+const personOf = (c: Contact) => ({ first_name: c.name && c.name !== c.handle ? c.name : null, username: c.handle });
+
 function patchAutomation(id: string, f: (a: Automation) => Automation) {
   state = { ...state, automations: state.automations.map((a) => (a.id === id ? f(a) : a)) };
 }
@@ -382,7 +386,8 @@ export function saveAutomation(input: AutomationInput, id?: string): Automation 
   if (id) {
     patchAutomation(id, (a) => ({ ...a, ...input, status: input.status ?? a.status, graph: undefined, draftGraph: undefined, custom: false, channel: "instagram", modified: now() }));
     emit();
-    if (remoteEnabled) void remote.saveWizard(id, { ...input, status: input.status ?? state.automations.find((a) => a.id === id)!.status }, false);
+    if (remoteEnabled) void remote.saveWizard(id, { ...input, status: input.status ?? state.automations.find((a) => a.id === id)!.status }, false).then((ok) => input.status === "live" && announce(id, !!ok));
+    else if (input.status === "live") announce(id, true);
     return state.automations.find((a) => a.id === id)!;
   }
   const a: Automation = {
@@ -398,7 +403,8 @@ export function saveAutomation(input: AutomationInput, id?: string): Automation 
   };
   state = { ...state, automations: [a, ...state.automations] };
   emit();
-  if (remoteEnabled) void remote.saveWizard(a.id, { ...input, status: a.status }, true);
+  if (remoteEnabled) void remote.saveWizard(a.id, { ...input, status: a.status }, true).then((ok) => a.status === "live" && announce(a.id, !!ok));
+  else if (a.status === "live") announce(a.id, true);
   return a;
 }
 export function setAutomationStatus(id: string, status: Status) {
@@ -424,6 +430,21 @@ export function discardDraft(id: string) {
   if (remoteEnabled && a) void remote.discardDraft(id, publishedGraph(a));
 }
 /** Publish = the draft becomes the version live traffic runs on. Validation happens in the UI first. */
+export type PublishNotice = { ok: boolean; name: string; account: string | null } | null;
+let notice: PublishNotice = null;
+export const useNotice = (): PublishNotice => useSyncExternalStore(subscribe, () => notice, () => null);
+export function dismissNotice() {
+  notice = null;
+  listeners.forEach((l) => l());
+}
+/** Tells the person what happened to a publish. In signed-in mode `ok` comes from asking the server again, not from the click. */
+function announce(id: string, ok: boolean) {
+  const a = state.automations.find((x) => x.id === id);
+  const acc = state.accounts.find((x) => x.id === a?.accountId);
+  notice = { ok, name: a?.name ?? "", account: acc?.username ?? null };
+  listeners.forEach((l) => l());
+}
+
 export function publishDraft(id: string) {
   patchAutomation(id, (a) => {
     const g = a.draftGraph ?? publishedGraph(a);
@@ -439,7 +460,8 @@ export function publishDraft(id: string) {
     };
   });
   emit();
-  if (remoteEnabled) void remote.publish(id);
+  if (remoteEnabled) void remote.publish(id).then((ok) => announce(id, ok));
+  else announce(id, true);
 }
 export function hasUnpublished(a: Automation) {
   return !!a.draftGraph && JSON.stringify(a.draftGraph) !== JSON.stringify(a.graph ?? buildGraph(a));
@@ -537,7 +559,7 @@ function visit(aId: string, g: Graph, convId: string, contactId: string, node: F
       if (tn && tn.kind === "trigger" && !isComment(triggerOf(tn).source)) return follow("next"); // nothing to reply to publicly
       const list = d.replies.filter(Boolean);
       if (list.length) {
-        push(convId, [{ id: uid("m"), kind: "public", sender: "bot", text: list[(a.nodeHits[node.id] ?? 0) % list.length], nodeId: node.id, at: tick() }]);
+        push(convId, [{ id: uid("m"), kind: "public", sender: "bot", text: fillVars(list[(a.nodeHits[node.id] ?? 0) % list.length], personOf(contact)), nodeId: node.id, at: tick() }]);
         bump(aId, { sent: 1, delivered: 1 });
       }
       return follow("next");
@@ -554,7 +576,7 @@ function visit(aId: string, g: Graph, convId: string, contactId: string, node: F
       }
       if (asPrivateReply) ctx.privateReplyUsed = true;
       const msgs: Message[] = [];
-      if (text) msgs.push({ id: uid("m"), kind: "text", sender: "bot", text, button: button || undefined, nodeId: node.id, at: tick() });
+      if (text) msgs.push({ id: uid("m"), kind: "text", sender: "bot", text: fillVars(text, personOf(contact)), button: button || undefined, nodeId: node.id, at: tick() });
       if (d.pdf) msgs.push({ id: uid("m"), kind: "doc", sender: "bot", text: d.pdf.name, nodeId: node.id, at: tick() });
       if (msgs.length) {
         push(convId, msgs);

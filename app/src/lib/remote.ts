@@ -194,9 +194,16 @@ export async function discardDraft(id: string, live: Graph) {
   await track(() => supabase().from("automations").update({ draft_graph: live, has_unpublished_changes: false }).eq("id", id));
 }
 
-export async function publish(id: string) {
+/** Asks the server whether the automation is really live now: published, with nothing waiting. A popup only says "published" when this is true. */
+async function confirmLive(id: string): Promise<boolean> {
+  const { data, error } = await supabase().from("automations").select("status,live_version_id,has_unpublished_changes").eq("id", id).maybeSingle();
+  return !error && !!data && data.status === "live" && !!data.live_version_id && !data.has_unpublished_changes;
+}
+
+export async function publish(id: string): Promise<boolean> {
   await flushDraft(id);
   await track(() => supabase().rpc("publish_automation", { p_id: id }));
+  return confirmLive(id);
 }
 
 export async function rename(id: string, name: string) {
@@ -207,8 +214,8 @@ export async function setStatus(id: string, status: "draft" | "live" | "paused")
 }
 
 /** Quick wizard save: the wizard fields plus the graph they produce. `live` publishes it right away. */
-export async function saveWizard(id: string, input: AutomationInput, isNew: boolean) {
-  if (!orgId || (isNew && !accountId)) return markFailed(); // a new automation always belongs to the selected account
+export async function saveWizard(id: string, input: AutomationInput, isNew: boolean): Promise<boolean | undefined> {
+  if (!orgId || (isNew && !accountId)) return void markFailed(); // a new automation always belongs to the selected account
   const { status, ...wizard } = input;
   const row = {
     name: input.name,
@@ -222,8 +229,11 @@ export async function saveWizard(id: string, input: AutomationInput, isNew: bool
   };
   await flushDraft(id);
   const res = await track(() => (isNew ? supabase().from("automations").insert({ id, org_id: orgId, channel_account_id: accountId, ...row }) : supabase().from("automations").update(row).eq("id", id)));
-  if (res === null && failed) return;
-  if (status === "live") await track(() => supabase().rpc("publish_automation", { p_id: id }));
+  if (res === null && failed) return status === "live" ? false : undefined;
+  if (status === "live") {
+    await track(() => supabase().rpc("publish_automation", { p_id: id }));
+    return confirmLive(id);
+  }
 }
 
 // ---------------------------------------------------------------- inbox and contacts

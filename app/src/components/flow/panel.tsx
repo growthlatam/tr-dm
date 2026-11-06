@@ -251,7 +251,7 @@ function MessageEditor({ d, update, defaultLang }: { d: Extract<NodeData, { kind
         onChange={setLang}
         items={LANGS.map((l) => ({ value: l.code, label: l.code, dot: !(d.text[l.code] ?? "").trim() && !d.pdf }))}
       />
-      <Field label={t("wiz.dm.text")} htmlFor="me-t" hint={t("wiz.dm.chars", { n: 1000 - text.length })}>
+      <Field label={t("wiz.dm.text")} htmlFor="me-t" hint={`${t("wiz.dm.chars", { n: 1000 - text.length })} · ${t("wiz.dm.vars")}`}>
         <Textarea id="me-t" rows={5} lang={lang} maxLength={1000} value={text} onChange={(e) => update({ ...d, text: { ...d.text, [lang]: e.target.value } })} />
       </Field>
       <Field label={t("ed.btn.opt")} htmlFor="me-b" hint={t("ed.msg.hint")}>

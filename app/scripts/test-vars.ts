@@ -1,0 +1,16 @@
+import { fillVars } from "../src/lib/vars";
+let fails = 0;
+const ck = (n: string, ok: boolean, x = "") => { console.log((ok ? "PASS " : "FAIL ") + n + (ok ? "" : "  " + x)); if (!ok) fails++; };
+const eq = (n: string, got: string, want: string) => ck(n, got === want, JSON.stringify(got));
+eq("first name", fillVars("Olá [name]!", { first_name: "Maria Souza", username: "maria" }), "Olá Maria!");
+eq("falls back to the handle", fillVars("Olá [name]!", { username: "@maria_s" }), "Olá maria_s!");
+eq("username variable", fillVars("Oi @[username]", { username: "maria" }), "Oi @maria");
+eq("case does not matter", fillVars("Oi [NAME] e [Username]", { first_name: "Ana", username: "ana1" }), "Oi Ana e ana1");
+eq("no data: the comma and spaces are tidied", fillVars("Olá [name], aqui está o guia.", {}), "Olá, aqui está o guia.");
+eq("no data at the start", fillVars("[name], aqui está.", {}), "aqui está.");
+eq("text without variables is untouched", fillVars("Olá, tudo bem?", { first_name: "Ana" }), "Olá, tudo bem?");
+eq("other brackets are left alone", fillVars("Veja [aqui] e [name]", { first_name: "Ana" }), "Veja [aqui] e Ana");
+eq("brackets in a name cannot inject a variable", fillVars("Oi [name]", { first_name: "[username]", username: "x" }), "Oi username");
+eq("a name with a line break stays on one line", fillVars("Oi [name]", { first_name: "Ana\nInjected" }), "Oi AnaInjected");
+console.log(fails ? `\n${fails} check(s) failed` : "\nAll checks passed");
+process.exit(fails ? 1 : 0);
