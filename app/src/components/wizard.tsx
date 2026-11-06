@@ -1,12 +1,12 @@
 "use client";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, FileText, Heart, Trash2 } from "lucide-react";
 import { remoteEnabled } from "@/lib/supabase/client";
 import { uploadPdf } from "@/lib/remote";
 import { LANGS, useI18n, type Lang } from "@/lib/i18n";
-import { saveAutomation, useStore, type Automation, type PostScope } from "@/lib/store";
+import { saveAutomation, useStore, type Automation, type Post, type PostScope } from "@/lib/store";
 import { Tester } from "./tester";
 import { Badge, Button, Card, Field, Input, Tabs, Textarea, Toggle, cx } from "./ui";
 
@@ -29,7 +29,32 @@ function fmtSize(n: number) {
 export function Wizard({ existing }: { existing?: Automation }) {
   const { t, lang: uiLang } = useI18n();
   const router = useRouter();
-  const { posts } = useStore();
+  const { posts: demoPosts, activeAccount } = useStore();
+  // Signed in: the account's real latest posts and reels. Otherwise the demo ones.
+  const [livePosts, setLivePosts] = useState<Post[] | null>(null);
+  const [postsState, setPostsState] = useState<"idle" | "loading" | "error">("idle");
+  useEffect(() => {
+    if (!remoteEnabled || !activeAccount) return;
+    let alive = true;
+    setPostsState("loading");
+    fetch(`/api/channels/${activeAccount}/media`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((j: { posts: (Omit<Post, "hue"> & { hue?: number })[] }) => {
+        if (!alive) return;
+        setLivePosts(j.posts.map((p) => ({ ...p, hue: [...p.id].reduce((n, c) => (n * 31 + c.charCodeAt(0)) % 360, 7) })));
+        setPostsState("idle");
+      })
+      .catch(() => {
+        if (alive) {
+          setLivePosts([]);
+          setPostsState("error");
+        }
+      });
+    return () => {
+      alive = false;
+    };
+  }, [activeAccount]);
+  const posts = remoteEnabled ? livePosts ?? [] : demoPosts;
 
   const [name, setName] = useState(existing?.name ?? "");
   const [scope, setScope] = useState<PostScope>(existing?.postScope ?? "specific");
@@ -170,6 +195,9 @@ export function Wizard({ existing }: { existing?: Automation }) {
             </fieldset>
             {scope === "specific" && (
               <div className="space-y-3">
+                {remoteEnabled && postsState === "loading" && <p role="status" className="text-sm text-text-muted">{t("wiz.post.loading")}</p>}
+                {remoteEnabled && postsState === "error" && <p role="alert" className="text-sm text-danger">{t("wiz.post.err")}</p>}
+                {remoteEnabled && postsState === "idle" && livePosts?.length === 0 && <p className="text-sm text-text-muted">{t("wiz.post.none")}</p>}
                 <ul role="radiogroup" aria-label={t("wiz.post.specific")} className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                   {posts.map((p) => (
                     <li key={p.id}>
@@ -180,7 +208,12 @@ export function Wizard({ existing }: { existing?: Automation }) {
                         onClick={() => setPostId(p.id)}
                         className={cx("w-full overflow-hidden rounded-md border-2 text-left", postId === p.id ? "border-accent" : "border-border")}
                       >
-                        <span aria-hidden className="block aspect-square" style={{ background: `linear-gradient(135deg, hsl(${p.hue} 60% 35%), hsl(${(p.hue + 50) % 360} 70% 55%))` }} />
+                        {p.image ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={p.image} alt="" loading="lazy" referrerPolicy="no-referrer" className="block aspect-square w-full object-cover" />
+                        ) : (
+                          <span aria-hidden className="block aspect-square" style={{ background: `linear-gradient(135deg, hsl(${p.hue} 60% 35%), hsl(${(p.hue + 50) % 360} 70% 55%))` }} />
+                        )}
                         <span className="block truncate px-2 py-1.5 text-xs">{p.caption}</span>
                       </button>
                     </li>

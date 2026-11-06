@@ -10,7 +10,7 @@ import { type PdfRef, buildGraph, isComment, matchTrigger, normalize, triggerOf,
 export type { PostScope };
 export type Status = "draft" | "live" | "paused";
 
-export type Post = { id: string; caption: string; date: string; hue: number; kind: "post" | "reel"; net?: "instagram" | "facebook" };
+export type Post = { id: string; caption: string; date: string; hue: number; kind: "post" | "reel"; net?: "instagram" | "facebook"; /** Real thumbnail (signed-in mode). */ image?: string | null };
 
 export type Dm = {
   text: Partial<Record<Lang, string>>;
