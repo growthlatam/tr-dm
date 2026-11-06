@@ -57,10 +57,11 @@ type Row = {
   custom: boolean;
   default_language: Lang;
   updated_at: string;
+  channel_account_id: string | null;
   live: { graph: Graph } | null;
 };
 
-const COLS = "id,name,status,draft_graph,has_unpublished_changes,wizard,custom,default_language,updated_at,live:automation_versions!automations_live_version_fk(graph)";
+const COLS = "id,name,status,draft_graph,has_unpublished_changes,wizard,custom,default_language,updated_at,channel_account_id,live:automation_versions!automations_live_version_fk(graph)";
 
 function fromRow(r: Row): Automation {
   const g = r.live?.graph ?? r.draft_graph;
@@ -90,6 +91,7 @@ function fromRow(r: Row): Automation {
     graph: r.live?.graph,
     draftGraph: r.has_unpublished_changes ? r.draft_graph : undefined,
     custom: r.custom,
+    accountId: r.channel_account_id ?? undefined,
     nodeHits: {},
   };
 }
@@ -97,25 +99,73 @@ function fromRow(r: Row): Automation {
 // ---------- workspace ----------
 
 let orgId: string | null = null;
+let accountId: string | null = null;
 export const currentOrgId = () => orgId;
+export const currentAccountId = () => accountId;
 
-/** Signed-in user's workspace (created on first sign-in) and its automations. */
-/** Returns null when nobody is signed in (the login page): the caller tries again after sign-in. */
-export async function bootstrap(): Promise<Automation[] | null> {
+const lsGet = (k: string) => {
+  try {
+    return localStorage.getItem(k);
+  } catch {
+    return null;
+  }
+};
+const lsSet = (k: string, v: string) => {
+  try {
+    localStorage.setItem(k, v);
+  } catch {}
+};
+const ORG_KEY = "tr-dm-org";
+const acctKey = (org: string) => `tr-dm-account:${org}`;
+
+export type Boot = { workspaces: Workspace[]; portfolios: Portfolio[]; accounts: Account[]; activeOrg: string; activeAccount: string | null; automations: Automation[] };
+
+/** Signed-in user's workspaces, the connections and accounts of the active one, and the active account's automations.
+ *  Returns null when nobody is signed in (the login page): the caller tries again after sign-in. */
+export async function bootstrap(): Promise<Boot | null> {
   const sb = supabase();
   const { data: auth } = await sb.auth.getUser();
   if (!auth.user) return null;
-  const mem = await sb.from("org_members").select("org_id").limit(1).maybeSingle();
+  const mem = await sb.from("org_members").select("org_id,role,orgs(name)").order("created_at");
   if (mem.error) throw mem.error;
-  if (mem.data) orgId = mem.data.org_id as string;
-  else {
+  let workspaces: Workspace[] = (mem.data ?? []).map((m) => ({ id: m.org_id as string, name: String((m.orgs as unknown as { name?: string } | null)?.name ?? "Workspace"), role: m.role as Workspace["role"] }));
+  if (!workspaces.length) {
     const created = await sb.rpc("create_org", { p_name: "TR Marketing" });
     if (created.error) throw created.error;
-    orgId = created.data as string;
+    workspaces = [{ id: created.data as string, name: "TR Marketing", role: "owner" }];
   }
-  const rows = await sb.from("automations").select(COLS).neq("status", "archived").order("updated_at", { ascending: false });
+  const saved = lsGet(ORG_KEY);
+  orgId = (workspaces.find((w) => w.id === saved) ?? workspaces[0]).id;
+
+  const [pf, ac] = await Promise.all([
+    sb.from("portfolio_connections").select("id,org_id,name").eq("org_id", orgId).order("created_at"),
+    sb.from("channel_accounts").select("id,org_id,portfolio_id,display_name,status").eq("org_id", orgId).neq("status", "disconnected").order("created_at"),
+  ]);
+  if (pf.error) throw pf.error;
+  if (ac.error) throw ac.error;
+  const portfolios: Portfolio[] = (pf.data ?? []).map((p) => ({ id: p.id as string, orgId: p.org_id as string, name: p.name as string }));
+  const accounts: Account[] = (ac.data ?? []).map((c) => ({ id: c.id as string, orgId: c.org_id as string, portfolioId: (c.portfolio_id as string) ?? null, username: c.display_name as string, status: c.status as string }));
+  const savedAcc = lsGet(acctKey(orgId));
+  accountId = (accounts.find((a) => a.id === savedAcc) ?? accounts.find((a) => a.status === "connected") ?? accounts[0])?.id ?? null;
+
+  const rows = await sb.from("automations").select(COLS).eq("org_id", orgId).neq("status", "archived").order("updated_at", { ascending: false });
   if (rows.error) throw rows.error;
-  return (rows.data as unknown as Row[]).map(fromRow);
+  return { workspaces, portfolios, accounts, activeOrg: orgId, activeAccount: accountId, automations: (rows.data as unknown as Row[]).map(fromRow) };
+}
+
+/** Remembers the choice in this browser only; the store reloads the data. */
+export function rememberOrg(id: string) {
+  lsSet(ORG_KEY, id);
+}
+export function rememberAccount(id: string) {
+  accountId = id;
+  if (orgId) lsSet(acctKey(orgId), id);
+}
+
+/** Copies an automation (as a draft) to another account of the same workspace. Returns the new id. */
+export async function copyAutomation(id: string, toAccount: string): Promise<string | null> {
+  const r = await track(() => supabase().rpc("copy_automation", { p_id: id, p_account: toAccount }));
+  return (r?.data as string | null) ?? null;
 }
 
 // ---------- writes ----------
@@ -158,7 +208,7 @@ export async function setStatus(id: string, status: "draft" | "live" | "paused")
 
 /** Quick wizard save: the wizard fields plus the graph they produce. `live` publishes it right away. */
 export async function saveWizard(id: string, input: AutomationInput, isNew: boolean) {
-  if (!orgId) return;
+  if (!orgId || (isNew && !accountId)) return markFailed(); // a new automation always belongs to the selected account
   const { status, ...wizard } = input;
   const row = {
     name: input.name,
@@ -171,7 +221,7 @@ export async function saveWizard(id: string, input: AutomationInput, isNew: bool
     status: status === "live" ? "draft" : (status ?? "draft"),
   };
   await flushDraft(id);
-  const res = await track(() => (isNew ? supabase().from("automations").insert({ id, org_id: orgId, ...row }) : supabase().from("automations").update(row).eq("id", id)));
+  const res = await track(() => (isNew ? supabase().from("automations").insert({ id, org_id: orgId, channel_account_id: accountId, ...row }) : supabase().from("automations").update(row).eq("id", id)));
   if (res === null && failed) return;
   if (status === "live") await track(() => supabase().rpc("publish_automation", { p_id: id }));
 }
@@ -179,15 +229,16 @@ export async function saveWizard(id: string, input: AutomationInput, isNew: bool
 // ---------------------------------------------------------------- inbox and contacts
 
 import { mapContact, mapConversation } from "./inbox-map";
-import type { Contact, Conversation, State } from "./store";
+import type { Account, Contact, Conversation, Portfolio, State, Workspace } from "./store";
 
 const chunks = <T,>(a: T[], n: number) => Array.from({ length: Math.ceil(a.length / n) }, (_, i) => a.slice(i * n, i * n + n));
 
 /** Recent conversations, their contacts, tags, messages and notes, and the team. Reads go through row level security. */
 export async function loadInbox(): Promise<{ contacts: Contact[]; conversations: Conversation[]; team: State["team"] }> {
   const sb = supabase();
-  const convs = ((await sb.from("conversations").select("*").order("last_message_at", { ascending: false, nullsFirst: false }).limit(200)).data ?? []) as any[]; // eslint-disable-line @typescript-eslint/no-explicit-any
-  const contacts = ((await sb.from("contacts").select("*").order("last_interaction_at", { ascending: false, nullsFirst: false }).limit(500)).data ?? []) as any[]; // eslint-disable-line @typescript-eslint/no-explicit-any
+  const acc = accountId ?? "00000000-0000-0000-0000-000000000000"; // no account selected: nothing to show
+  const convs = ((await sb.from("conversations").select("*").eq("channel_account_id", acc).order("last_message_at", { ascending: false, nullsFirst: false }).limit(200)).data ?? []) as any[]; // eslint-disable-line @typescript-eslint/no-explicit-any
+  const contacts = ((await sb.from("contacts").select("*").eq("channel_account_id", acc).order("last_interaction_at", { ascending: false, nullsFirst: false }).limit(500)).data ?? []) as any[]; // eslint-disable-line @typescript-eslint/no-explicit-any
   const convIds = convs.map((c) => c.id as string);
   const contactIds = contacts.map((c) => c.id as string);
 

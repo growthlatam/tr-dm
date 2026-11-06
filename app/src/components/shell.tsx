@@ -4,7 +4,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { Home, Users, Workflow, Inbox, Settings, Menu, X, LogOut } from "lucide-react";
 import { LANGS, useI18n, type Key } from "@/lib/i18n";
-import { useHydrated, useStore } from "@/lib/store";
+import { selectAccount, selectOrg, useHydrated, useStore } from "@/lib/store";
 import { useSyncFailed } from "@/lib/remote";
 import { remoteEnabled, supabase } from "@/lib/supabase/client";
 import { cx } from "./ui";
@@ -23,7 +23,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const { t, lang, setLang } = useI18n();
   const path = usePathname();
   const [open, setOpen] = useState(false);
-  const { conversations } = useStore();
+  const { conversations, workspaces, accounts, portfolios, activeOrg, activeAccount } = useStore();
   const ready = useHydrated();
   const syncFailed = useSyncFailed();
   const unread = conversations.reduce((n, c) => n + (c.state === "open" ? c.unread : 0), 0);
@@ -72,6 +72,48 @@ export function AppShell({ children }: { children: ReactNode }) {
           <div className="text-xs text-text-muted">{t("app.org")}</div>
         </div>
       </div>
+      {remoteEnabled && ready && (
+        <div className="space-y-2 border-b border-border p-3">
+          {workspaces.length > 1 && (
+            <div>
+              <label htmlFor="ws-sel" className="mb-1 block text-xs font-medium text-text-muted">
+                {t("switch.ws")}
+              </label>
+              <select id="ws-sel" value={activeOrg ?? ""} onChange={(e) => selectOrg(e.target.value)} className="h-9 w-full rounded-md border border-border-input bg-bg px-2 text-sm">
+                {workspaces.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          <div>
+            <label htmlFor="acct-sel" className="mb-1 block text-xs font-medium text-text-muted">
+              {t("switch.acct")}
+            </label>
+            {accounts.length === 0 ? (
+              <p className="text-xs text-text-muted">{t("switch.none")}</p>
+            ) : (
+              <select id="acct-sel" value={activeAccount ?? ""} onChange={(e) => selectAccount(e.target.value)} className="h-9 w-full rounded-md border border-border-input bg-bg px-2 text-sm">
+                {[...portfolios, { id: "", name: "—", orgId: "" }].map((p) => {
+                  const list = accounts.filter((a) => (a.portfolioId ?? "") === p.id);
+                  if (!list.length) return null;
+                  return (
+                    <optgroup key={p.id || "none"} label={p.name}>
+                      {list.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          @{a.username}
+                        </option>
+                      ))}
+                    </optgroup>
+                  );
+                })}
+              </select>
+            )}
+          </div>
+        </div>
+      )}
       {nav}
       <div className="border-t border-border p-3">
         {remoteEnabled && email && (

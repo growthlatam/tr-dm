@@ -14,11 +14,7 @@ export function missingConfig(): string[] {
 }
 
 /** Step 1: the Facebook login page, with the configuration that carries the Instagram assets and permissions. */
-export type ConnectMode = "portfolio" | "instagram";
-
-/** "portfolio" is the plain Unified Login (assets from a business portfolio). "instagram" adds prompt=login, which per Meta's
- *  docs shows the Instagram sign-in option too, so a professional account that is not in any portfolio can be shared. */
-export function authorizeUrl(state: string, mode: ConnectMode = "portfolio"): string {
+export function authorizeUrl(state: string): string {
   const u = new URL("https://www.facebook.com/dialog/oauth");
   u.searchParams.set("client_id", process.env.META_APP_ID ?? "");
   u.searchParams.set("config_id", process.env.META_CONFIG_ID ?? "");
@@ -26,7 +22,6 @@ export function authorizeUrl(state: string, mode: ConnectMode = "portfolio"): st
   u.searchParams.set("response_type", "code");
   u.searchParams.set("override_default_response_type", "true");
   u.searchParams.set("state", state);
-  if (mode === "instagram") u.searchParams.set("prompt", "login");
   return u.toString();
 }
 

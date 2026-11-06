@@ -42,6 +42,8 @@ export type Automation = {
   draftGraph?: Graph;
   /** true once the flow was edited in the canvas (the quick wizard can no longer own it). */
   custom?: boolean;
+  /** Instagram account this automation belongs to (real data only). */
+  accountId?: string;
   nodeHits: Record<string, number>;
   /** Default reply: when each contact last got it (for the frequency limit). */
   lastFire?: Record<string, number>;
@@ -58,6 +60,8 @@ export type Contact = {
   optedInVia: "comment" | "ad" | "dm";
   followsAccount?: boolean;
   followers?: number;
+  /** Instagram account this person talked to (real data only). */
+  accountId?: string;
   windowExpiresAt: number | null; // 24h window; a private reply to a comment does NOT open it
   lastActivity: number;
 };
@@ -87,11 +91,22 @@ export type Conversation = {
   reminderAt: number | null;
   messages: Message[];
   lastAt: number;
+  accountId?: string;
 };
 
 export type Wait = { id: string; automationId: string; conversationId: string; contactId: string; nodeId: string; due: number };
 
+export type Workspace = { id: string; name: string; role: "owner" | "admin" | "editor" | "agent" | "viewer" };
+export type Portfolio = { id: string; orgId: string; name: string };
+export type Account = { id: string; orgId: string; portfolioId: string | null; username: string; status: string };
+
 export type State = {
+  /** Signed-in mode: the workspaces this person is in, the portfolio connections and Instagram accounts of the active workspace, and what is selected. */
+  workspaces: Workspace[];
+  portfolios: Portfolio[];
+  accounts: Account[];
+  activeOrg: string | null;
+  activeAccount: string | null;
   posts: Post[];
   automations: Automation[];
   contacts: Contact[];
@@ -107,6 +122,11 @@ export const HOUR = 3600_000;
 function seed(): State {
   const t = now();
   return {
+    workspaces: [],
+    portfolios: [],
+    accounts: [],
+    activeOrg: null,
+    activeAccount: null,
     posts: [
       { id: "17900000000000001", caption: "New whitepaper: AI in legal research", date: "2026-10-28", hue: 215, kind: "post" },
       { id: "17900000000000002", caption: "Reel: 3 tax changes to watch in 2027", date: "2026-10-21", hue: 18, kind: "reel" },
@@ -191,12 +211,12 @@ function hydrate() {
   state = { ...state, automations: [], contacts: [], conversations: [], waits: [], team: [] };
   remote
     .bootstrap()
-    .then(async (list) => {
-      if (list === null) {
+    .then(async (boot) => {
+      if (boot === null) {
         hydrated = false; // signed out: try again after sign-in (see reloadStore)
         return;
       }
-      state = { ...state, automations: list };
+      state = { ...state, automations: boot.automations, workspaces: boot.workspaces, portfolios: boot.portfolios, accounts: boot.accounts, activeOrg: boot.activeOrg, activeAccount: boot.activeAccount };
       ready = true;
       await refreshInbox();
       startPolling();
@@ -208,6 +228,35 @@ function hydrate() {
     })
     .finally(() => listeners.forEach((l) => l()));
 }
+/** Picks another Instagram account in the active workspace: its automations, inbox and numbers replace the current ones. */
+export function selectAccount(id: string) {
+  if (!remoteEnabled || state.activeAccount === id || !state.accounts.some((a) => a.id === id)) return;
+  remote.rememberAccount(id);
+  state = { ...state, activeAccount: id, conversations: state.conversations.filter((c) => isDemo(c.id)), contacts: state.contacts.filter((c) => isDemo(c.id)) };
+  listeners.forEach((l) => l());
+  lastWrite = 0;
+  void refreshInbox();
+}
+/** Switches workspace: everything is loaded again for it. */
+export function selectOrg(id: string) {
+  if (!remoteEnabled || state.activeOrg === id) return;
+  remote.rememberOrg(id);
+  reloadStore();
+}
+/** Copies an automation to another account of this workspace, as a draft. Returns the new id, or null if it failed. */
+export async function copyAutomationTo(id: string, accountId: string): Promise<string | null> {
+  if (!remoteEnabled) return null;
+  const nid = await remote.copyAutomation(id, accountId);
+  if (nid) {
+    const boot = await remote.bootstrap();
+    if (boot) {
+      state = { ...state, automations: boot.automations };
+      listeners.forEach((l) => l());
+    }
+  }
+  return nid;
+}
+
 /** Call right after signing in: loads the new session's workspace without a full page reload. */
 export function reloadStore() {
   hydrated = false;
@@ -240,7 +289,14 @@ function getView(): State {
   if (!remoteEnabled) return state;
   if (viewSrc === state && viewOut) return viewOut;
   viewSrc = state;
-  viewOut = { ...state, conversations: state.conversations.filter((c) => !isDemo(c.id)), contacts: state.contacts.filter((c) => !isDemo(c.id)) };
+  const acc = state.activeAccount;
+  // only the selected Instagram account's automations, people and conversations; real data only
+  viewOut = {
+    ...state,
+    automations: state.automations.filter((a) => (a.accountId ?? null) === acc),
+    conversations: state.conversations.filter((c) => !isDemo(c.id) && c.accountId === acc),
+    contacts: state.contacts.filter((c) => !isDemo(c.id) && c.accountId === acc),
+  };
   return viewOut;
 }
 export function useStore(): State {
@@ -334,6 +390,7 @@ export function saveAutomation(input: AutomationInput, id?: string): Automation 
     id: remoteEnabled ? crypto.randomUUID() : uid("a"),
     status: input.status ?? "draft",
     channel: "instagram",
+    accountId: remoteEnabled ? state.activeAccount ?? undefined : undefined,
     stats: { runs: 0, contacts: 0, sent: 0, delivered: 0, read: 0, clicked: 0, taps: 0, docs: 0 },
     firings: [],
     modified: now(),

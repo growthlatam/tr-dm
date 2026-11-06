@@ -22,6 +22,7 @@ export function mapContact(c: Row, tags: string[], pausedUntil: string | null, n
     followers: c.follower_count ?? undefined,
     windowExpiresAt: c.window_expires_at ? ms(c.window_expires_at) : null,
     lastActivity: ms(c.last_interaction_at) || ms(c.created_at),
+    accountId: c.channel_account_id ?? undefined,
   };
 }
 
@@ -57,5 +58,6 @@ export function mapConversation(c: Row, msgs: Row[], notes: Row[]): Conversation
     reminderAt: c.reminder_at ? ms(c.reminder_at) : null,
     messages,
     lastAt: ms(c.last_message_at) || (messages.length ? messages[messages.length - 1].at : ms(c.created_at)),
+    accountId: c.channel_account_id ?? undefined,
   };
 }

@@ -67,7 +67,7 @@ export async function processEvent(db: DB, ev: { id: string; external_event_id: 
 
   const now = new Date();
   const isComm = inb.kind === "comment";
-  const autos = (must(await db.from("automations").select("id,name,default_language,live_version_id,created_at,live:automation_versions!automations_live_version_fk(graph)").eq("org_id", acc.org_id).eq("status", "live").not("live_version_id", "is", null).order("created_at"), "automations") as unknown) as Row[];
+  const autos = (must(await db.from("automations").select("id,name,default_language,live_version_id,created_at,live:automation_versions!automations_live_version_fk(graph)").eq("org_id", acc.org_id).eq("channel_account_id", acc.id).eq("status", "live").not("live_version_id", "is", null).order("created_at"), "automations") as unknown) as Row[];
 
   // A public comment only becomes a contact and a conversation if it actually starts something. Comments nobody asked us to
   // answer (no matching automation, an opted-out person, a repeat on the same post) are dropped without storing anything.

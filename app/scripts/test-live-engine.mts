@@ -39,10 +39,10 @@ try {
   const org = (await one(db.from("orgs").insert({ name: `engine-test-${tag}` }).select("id").single())) as { id: string };
   orgId = org.id;
   const acc = (await one(db.from("channel_accounts").insert({ org_id: orgId, channel: "instagram", external_page_id: IG, external_ig_id: IG, display_name: "test" }).select("id").single())) as { id: string };
-  await one(db.from("channel_accounts").insert({ org_id: orgId, channel: "messenger", external_page_id: FB, display_name: "test page" }));
+  const fbAcc = (await one(db.from("channel_accounts").insert({ org_id: orgId, channel: "messenger", external_page_id: FB, display_name: "test page" }).select("id").single())) as { id: string };
 
-  async function publish(name: string, graph: Graph): Promise<string> {
-    const a = (await one(db.from("automations").insert({ org_id: orgId, name, status: "live", draft_graph: graph, custom: true }).select("id").single())) as { id: string };
+  async function publish(name: string, graph: Graph, account = acc.id): Promise<string> {
+    const a = (await one(db.from("automations").insert({ org_id: orgId, name, status: "live", draft_graph: graph, custom: true, channel_account_id: account }).select("id").single())) as { id: string };
     const v = (await one(db.from("automation_versions").insert({ automation_id: a.id, org_id: orgId, version: 1, graph }).select("id").single())) as { id: string };
     await one(db.from("automations").update({ live_version_id: v.id }).eq("id", a.id));
     return a.id;
@@ -175,7 +175,7 @@ try {
   const fbGraph = JSON.parse(JSON.stringify(wiz)) as Graph;
   const ft = fbGraph.nodes.find((x) => x.data.kind === "trigger")!;
   if (ft.data.kind === "trigger") { ft.data.source = "fb_comment"; ft.data.postId = "FBPOST"; }
-  await publish("fb comment", fbGraph);
+  await publish("fb comment", fbGraph, fbAcc.id);
   r = await deliver({ object: "page", entry: [{ id: FB, time: 1, changes: [{ field: "feed", value: { item: "comment", verb: "add", comment_id: `fc${uid()}`, post_id: "FBPOST", parent_id: "FBPOST", message: "guia", from: { id: "FB1", name: "Fan" } } }] }] });
   ck("13. a Facebook Page comment starts the Facebook automation", r.processed === 1, JSON.stringify(r));
   r = await deliver({ object: "page", entry: [{ id: FB, time: 1, changes: [{ field: "feed", value: { item: "comment", verb: "add", comment_id: `fc${uid()}`, post_id: "FBPOST", parent_id: "someone-elses-comment", message: "guia", from: { id: "FB2", name: "Fan" } } }] }] });

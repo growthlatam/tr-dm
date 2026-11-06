@@ -50,8 +50,6 @@ let failed = false; try { await exchangeCode("C", bad); } catch (e) { failed = /
 ck("a rejected code is reported, not swallowed", failed);
 const au = new URL(authorizeUrl("STATE"));
 ck("authorize URL is the Facebook dialog with the meta app id, config id, redirect, code flow and state", au.hostname === "www.facebook.com" && au.pathname === "/dialog/oauth" && au.searchParams.get("client_id") === "111" && au.searchParams.get("config_id") === "222" && au.searchParams.get("redirect_uri") === "https://example.test/api/channels/instagram/callback" && au.searchParams.get("response_type") === "code" && au.searchParams.get("state") === "STATE");
-const ai = new URL(authorizeUrl("S", "instagram"));
-ck("the Instagram mode adds prompt=login and keeps everything else", ai.searchParams.get("prompt") === "login" && ai.searchParams.get("config_id") === "222" && au.searchParams.get("prompt") === null);
 ck("missingConfig lists only what is unset (names, no values)", missingConfig().length === 0 || missingConfig().every((k) => typeof k === "string"));
 
 // ---- sender against the real database

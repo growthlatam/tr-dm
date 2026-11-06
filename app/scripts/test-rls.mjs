@@ -161,6 +161,29 @@ try {
   const safe = await a.from("channel_accounts").select("id,display_name");
   check("safe channel columns are readable", !safe.error, safe.error?.message);
 
+  // portfolio connections, automations bound to an account, and copying between accounts
+  const mkAcc = async (org, id) => (await admin.from("channel_accounts").insert({ org_id: org, channel: "instagram", external_page_id: id, external_ig_id: id, display_name: id }).select("id").single()).data.id;
+  const accA1 = await mkAcc(orgA, "PA1" + tag);
+  const accA2 = await mkAcc(orgA, "PA2" + tag);
+  const accB1 = await mkAcc(orgB, "PB1" + tag);
+  const pf = await admin.from("portfolio_connections").insert({ org_id: orgA, name: "Portfolio " + tag }).select("id").single();
+  check("the server can create a portfolio connection", !pf.error, pf.error?.message);
+  check("a member can read their workspace's portfolio connections", ((await a.from("portfolio_connections").select("id")).data ?? []).length >= 1);
+  check("another workspace cannot read them", ((await b.from("portfolio_connections").select("id").eq("org_id", orgA)).data ?? []).length === 0);
+  check("a browser cannot create a portfolio connection", !!(await a.from("portfolio_connections").insert({ org_id: orgA, name: "mine" })).error);
+  check("a browser cannot rename one", ((await a.from("portfolio_connections").update({ name: "x" }).eq("id", pf.data.id).select()).data ?? []).length === 0);
+  const bound = await a.from("automations").insert({ org_id: orgA, name: "bound", draft_graph: graph, channel_account_id: accA1 }).select("id").single();
+  check("an automation can be bound to an account of its workspace", !bound.error, bound.error?.message);
+  check("an automation cannot point at another workspace's account", !!(await a.from("automations").insert({ org_id: orgA, name: "wrong", draft_graph: graph, channel_account_id: accB1 })).error);
+  check("an existing automation cannot be moved to another workspace's account", !!(await a.from("automations").update({ channel_account_id: accB1 }).eq("id", bound.data.id)).error);
+  const cp = await a.rpc("copy_automation", { p_id: bound.data.id, p_account: accA2 });
+  check("copying to another account of the workspace works", !cp.error && !!cp.data, cp.error?.message);
+  const cpRow = (await a.from("automations").select("channel_account_id,status,name").eq("id", cp.data).maybeSingle()).data;
+  check("the copy is a draft on the new account", cpRow?.channel_account_id === accA2 && cpRow?.status === "draft" && /copy/.test(cpRow?.name ?? ""), JSON.stringify(cpRow));
+  check("copying to another workspace's account is refused", !!(await a.rpc("copy_automation", { p_id: bound.data.id, p_account: accB1 })).error);
+  check("another workspace cannot copy A's automation", !!(await b.rpc("copy_automation", { p_id: bound.data.id, p_account: accB1 })).error);
+  check("a viewer cannot copy", !!(await v.rpc("copy_automation", { p_id: bound.data.id, p_account: accA2 })).error);
+
   const anonClient = anonClient0;
   check("signed-out visitor sees nothing", ((await anonClient.from("automations").select("id")).data ?? []).length === 0);
 } catch (e) {

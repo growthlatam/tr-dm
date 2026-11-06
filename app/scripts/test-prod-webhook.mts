@@ -16,9 +16,9 @@ const cid = `c${randomBytes(4).toString("hex")}`;
 let orgId = "";
 try {
   orgId = ((await db.from("orgs").insert({ name: "prod-webhook-test" }).select("id").single()).data as { id: string }).id;
-  await db.from("channel_accounts").insert({ org_id: orgId, channel: "instagram", external_page_id: IG, external_ig_id: IG, display_name: "t" });
+  const acc = (await db.from("channel_accounts").insert({ org_id: orgId, channel: "instagram", external_page_id: IG, external_ig_id: IG, display_name: "t" }).select("id").single()).data as { id: string };
   const graph = buildGraph({ postScope: "specific", postId: "M1", anyWord: false, keywords: ["guia"], publicReply: true, publicReplies: ["Enviado!"], dm: { text: { "pt-BR": "Olá!" }, button: { "pt-BR": "Quero" } }, pdf: { name: "g.pdf", size: 1 }, tag: "lead" });
-  const a = (await db.from("automations").insert({ org_id: orgId, name: "t", status: "live", draft_graph: graph, custom: true }).select("id").single()).data as { id: string };
+  const a = (await db.from("automations").insert({ org_id: orgId, name: "t", status: "live", draft_graph: graph, custom: true, channel_account_id: acc.id }).select("id").single()).data as { id: string };
   const v = (await db.from("automation_versions").insert({ automation_id: a.id, org_id: orgId, version: 1, graph }).select("id").single()).data as { id: string };
   await db.from("automations").update({ live_version_id: v.id }).eq("id", a.id);
 
