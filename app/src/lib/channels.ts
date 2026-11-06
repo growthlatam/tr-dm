@@ -62,24 +62,30 @@ export async function exchangeCode(code: string, f: F = fetch): Promise<Granted>
   if (!accounts.length) {
     // Accounts that belong to a business portfolio may not show up under "assigned". The token's own record lists the assets the
     // person granted (granular scopes, target_ids): read the Instagram ones from there.
-    const ids = await grantedInstagramIds(token, f);
-    how += `; granted instagram ids: ${ids.length}`;
+    const g = await grantedInstagramIds(token, f);
+    how += `; ${g.note}`;
     accounts = [];
-    for (const id of ids) {
+    for (const id of g.ids) {
       const r3 = await f(`${graphBase()}/${id}?fields=id,username`, { headers: { authorization: `Bearer ${token}` } });
       const j3 = await r3.json().catch(() => ({}));
       accounts.push({ igId: String(j3?.id ?? id), username: String(j3?.username ?? "") });
+    }
+    if (!accounts.length) {
+      const pg = await pageLinkedAccounts(token, f);
+      how += `; ${pg.note}`;
+      accounts = pg.list;
     }
   }
   if (!accounts.length) throw new Error(`no Instagram professional account was shared in the login (${how})`);
   return { token, expiresAt, accounts };
 }
 
-/** Instagram account ids the person granted to this token, from Meta's token inspection (app credentials in a header, never in a URL). */
-async function grantedInstagramIds(token: string, f: F): Promise<string[]> {
+/** Instagram account ids the person granted to this token, from Meta's token inspection (app credentials in a header, never in a URL).
+ *  Also returns a short, secret-free note of what Meta answered, for the error message. */
+async function grantedInstagramIds(token: string, f: F): Promise<{ ids: string[]; note: string }> {
   const id = process.env.META_APP_ID;
   const secret = process.env.META_APP_SECRET;
-  if (!id || !secret) return [];
+  if (!id || !secret) return { ids: [], note: "no app credentials" };
   const u = new URL(`${graphBase()}/debug_token`);
   u.searchParams.set("input_token", token);
   const r = await f(u, { headers: { authorization: `Bearer ${id}|${secret}` } });
@@ -87,7 +93,19 @@ async function grantedInstagramIds(token: string, f: F): Promise<string[]> {
   const scopes = (j?.data?.granular_scopes ?? []) as { scope?: string; target_ids?: string[] }[];
   const ids = new Set<string>();
   for (const g of scopes) if (/^instagram_/.test(String(g.scope ?? ""))) for (const t of g.target_ids ?? []) ids.add(String(t));
-  return [...ids];
+  const note = `debug_token ${r.status} type=${j?.data?.type ?? "?"} scopes=[${scopes.map((g) => `${g.scope}:${(g.target_ids ?? []).length}`).join(",")}]${j?.error ? ` error="${String(j.error.message ?? "").slice(0, 80)}"` : ""}`;
+  return { ids: [...ids], note };
+}
+
+/** Instagram accounts linked to the Pages the person granted (a portfolio account is often reached through its Page). */
+async function pageLinkedAccounts(token: string, f: F): Promise<{ list: { igId: string; username: string }[]; note: string }> {
+  const u = new URL(`${graphBase()}/me/accounts`);
+  u.searchParams.set("fields", "id,instagram_business_account{id,username}");
+  const r = await f(u, { headers: { authorization: `Bearer ${token}` } });
+  const j = await r.json().catch(() => ({}));
+  const pages = (j?.data ?? []) as { id?: string; instagram_business_account?: { id?: string; username?: string } }[];
+  const list = pages.filter((p) => p.instagram_business_account?.id).map((p) => ({ igId: String(p.instagram_business_account!.id), username: String(p.instagram_business_account!.username ?? "") }));
+  return { list, note: `me/accounts ${r.status} pages=${pages.length} withInstagram=${list.length}${j?.error ? ` error="${String(j.error.message ?? "").slice(0, 80)}"` : ""}` };
 }
 
 /** Asks Meta to send this account's events to our webhook. Needed for each account; returns false if Meta refused. */
