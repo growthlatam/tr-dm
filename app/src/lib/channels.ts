@@ -75,6 +75,11 @@ export async function exchangeCode(code: string, f: F = fetch): Promise<Granted>
       how += `; ${pg.note}`;
       accounts = pg.list;
     }
+    if (!accounts.length) {
+      const pf = await portfolioAccounts(token, f);
+      how += `; ${pf.note}`;
+      accounts = pf.list;
+    }
   }
   if (!accounts.length) throw new Error(`no Instagram professional account was shared in the login (${how})`);
   return { token, expiresAt, accounts };
@@ -106,6 +111,37 @@ async function pageLinkedAccounts(token: string, f: F): Promise<{ list: { igId: 
   const pages = (j?.data ?? []) as { id?: string; instagram_business_account?: { id?: string; username?: string } }[];
   const list = pages.filter((p) => p.instagram_business_account?.id).map((p) => ({ igId: String(p.instagram_business_account!.id), username: String(p.instagram_business_account!.username ?? "") }));
   return { list, note: `me/accounts ${r.status} pages=${pages.length} withInstagram=${list.length}${j?.error ? ` error="${String(j.error.message ?? "").slice(0, 80)}"` : ""}` };
+}
+
+/** Accounts reached through the business portfolio the token belongs to. Each step is tried on its own, and what Meta said is kept in the note. */
+async function portfolioAccounts(token: string, f: F): Promise<{ list: { igId: string; username: string }[]; note: string }> {
+  const get = async (path: string) => {
+    const r = await f(`${graphBase()}/${path}`, { headers: { authorization: `Bearer ${token}` } });
+    const j = await r.json().catch(() => ({}));
+    return { ok: r.ok, status: r.status, j, err: j?.error ? String(j.error.message ?? "").slice(0, 90) : "" };
+  };
+  const list: { igId: string; username: string }[] = [];
+  const notes: string[] = [];
+  const add = (rows: unknown) => {
+    for (const a of (rows ?? []) as { id?: string; username?: string }[]) if (a?.id && !list.some((x) => x.igId === String(a.id))) list.push({ igId: String(a.id), username: String(a.username ?? "") });
+  };
+  const biz = await get("me/businesses?fields=id,name");
+  const ids = ((biz.j?.data ?? []) as { id?: string }[]).map((b) => String(b.id)).filter(Boolean);
+  notes.push(`me/businesses ${biz.status} n=${ids.length}${biz.err ? ` error="${biz.err}"` : ""}`);
+  for (const b of ids.slice(0, 3)) {
+    for (const edge of ["owned_instagram_accounts", "instagram_business_accounts", "client_instagram_accounts"]) {
+      const x = await get(`${b}/${edge}?fields=id,username`);
+      notes.push(`${edge} ${x.status} n=${(x.j?.data ?? []).length}${x.err ? ` error="${x.err}"` : ""}`);
+      if (x.ok) add(x.j?.data);
+    }
+  }
+  const me = await get("me?fields=id,name");
+  const own = me.j?.id ? await get(`${me.j.id}/assigned_instagram_accounts?fields=id,username`) : null;
+  if (own) {
+    notes.push(`user/assigned_instagram_accounts ${own.status} n=${(own.j?.data ?? []).length}${own.err ? ` error="${own.err}"` : ""}`);
+    if (own.ok) add(own.j?.data);
+  }
+  return { list, note: notes.join("; ") };
 }
 
 /** Asks Meta to send this account's events to our webhook. Needed for each account; returns false if Meta refused. */
