@@ -43,10 +43,11 @@ export async function POST(req: NextRequest) {
   const parsed = Body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "invalid" }, { status: 400 });
   const { email } = parsed.data;
-  // Only the address the platform sets: Vercel writes x-real-ip itself, a client cannot choose it. Anywhere else everyone shares
-  // one bucket ("?"), which is stricter, never weaker. x-forwarded-for is client-controlled and is not trusted.
-  const ip = req.headers.get("x-real-ip") ?? "?";
-  if (tooMany("ip:" + ip, 20) || tooMany("pair:" + ip + "|" + email, 6)) return NextResponse.json({ error: "slow down" }, { status: 429 });
+  // Only the address the platform sets: Vercel writes x-real-ip itself, a client cannot choose it. x-forwarded-for is
+  // client-controlled and is not trusted. With no trusted address (local development) there is no brake rather than one
+  // bucket shared by everybody, which would let one caller lock all the others out.
+  const ip = req.headers.get("x-real-ip");
+  if (ip && (tooMany("ip:" + ip, 20) || tooMany("pair:" + ip + "|" + email, 6))) return NextResponse.json({ error: "slow down" }, { status: 429 });
 
   const admin = createClient(url, key, { auth: { persistSession: false } });
   const { data: allowed, error: lookupError } = await admin.from("allowed_emails").select("email").eq("email", email).maybeSingle();
