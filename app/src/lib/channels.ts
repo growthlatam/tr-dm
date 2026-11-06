@@ -57,9 +57,37 @@ export async function exchangeCode(code: string, f: F = fetch): Promise<Granted>
   const r2 = await f(acc, { headers: { authorization: `Bearer ${token}` } });
   const j2 = await r2.json().catch(() => ({}));
   if (!r2.ok) throw new Error(`account lookup failed (${r2.status}): ${j2?.error?.message ?? "error"}`);
-  const accounts = ((j2?.data ?? []) as { id?: string; username?: string }[]).filter((a) => a.id).map((a) => ({ igId: String(a.id), username: String(a.username ?? "") }));
-  if (!accounts.length) throw new Error("no Instagram professional account was shared in the login");
+  let accounts = ((j2?.data ?? []) as { id?: string; username?: string }[]).filter((a) => a.id).map((a) => ({ igId: String(a.id), username: String(a.username ?? "") }));
+  let how = `assigned_instagram_accounts returned ${accounts.length}`;
+  if (!accounts.length) {
+    // Accounts that belong to a business portfolio may not show up under "assigned". The token's own record lists the assets the
+    // person granted (granular scopes, target_ids): read the Instagram ones from there.
+    const ids = await grantedInstagramIds(token, f);
+    how += `; granted instagram ids: ${ids.length}`;
+    accounts = [];
+    for (const id of ids) {
+      const r3 = await f(`${graphBase()}/${id}?fields=id,username`, { headers: { authorization: `Bearer ${token}` } });
+      const j3 = await r3.json().catch(() => ({}));
+      accounts.push({ igId: String(j3?.id ?? id), username: String(j3?.username ?? "") });
+    }
+  }
+  if (!accounts.length) throw new Error(`no Instagram professional account was shared in the login (${how})`);
   return { token, expiresAt, accounts };
+}
+
+/** Instagram account ids the person granted to this token, from Meta's token inspection (app credentials in a header, never in a URL). */
+async function grantedInstagramIds(token: string, f: F): Promise<string[]> {
+  const id = process.env.META_APP_ID;
+  const secret = process.env.META_APP_SECRET;
+  if (!id || !secret) return [];
+  const u = new URL(`${graphBase()}/debug_token`);
+  u.searchParams.set("input_token", token);
+  const r = await f(u, { headers: { authorization: `Bearer ${id}|${secret}` } });
+  const j = await r.json().catch(() => ({}));
+  const scopes = (j?.data?.granular_scopes ?? []) as { scope?: string; target_ids?: string[] }[];
+  const ids = new Set<string>();
+  for (const g of scopes) if (/^instagram_/.test(String(g.scope ?? ""))) for (const t of g.target_ids ?? []) ids.add(String(t));
+  return [...ids];
 }
 
 /** Asks Meta to send this account's events to our webhook. Needed for each account; returns false if Meta refused. */

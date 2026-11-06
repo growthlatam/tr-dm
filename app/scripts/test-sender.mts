@@ -45,6 +45,16 @@ ck("if Meta asks for redirect_uri, the exchange is retried with it", ex3.token =
 const none = (async (u: any) => String(u).includes("/oauth/access_token") ? json({ access_token: "T" }) : json({ data: [] })) as typeof fetch;
 let refused = false; try { await exchangeCode("C", none); } catch (e) { refused = /no Instagram professional account/.test(String(e)); }
 ck("a login that shared no Instagram account is refused", refused);
+const viaScopes = (async (u: any, init?: any) => {
+  const x = String(u);
+  if (x.includes("/oauth/access_token")) return json({ access_token: "T3" });
+  if (x.includes("/me/assigned_instagram_accounts")) return json({ data: [] });
+  if (x.includes("/debug_token")) return json({ data: { granular_scopes: [{ scope: "instagram_basic", target_ids: ["1784100"] }, { scope: "instagram_manage_comments", target_ids: ["1784100"] }, { scope: "business_management" }] } });
+  if (x.includes("/1784100")) return json({ id: "1784100", username: "portfolio_conta" });
+  return json({}, 404);
+}) as typeof fetch;
+const ex4 = await exchangeCode("C", viaScopes);
+ck("accounts that are not 'assigned' are found through the token's granted assets", ex4.accounts.length === 1 && ex4.accounts[0].igId === "1784100" && ex4.accounts[0].username === "portfolio_conta");
 const bad = (async () => json({ error: { message: "Invalid verification code format." } }, 400)) as typeof fetch;
 let failed = false; try { await exchangeCode("C", bad); } catch (e) { failed = /token exchange failed/.test(String(e)); }
 ck("a rejected code is reported, not swallowed", failed);
