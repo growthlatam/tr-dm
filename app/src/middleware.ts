@@ -16,7 +16,11 @@ export async function middleware(req: NextRequest) {
   })();
   const host = req.headers.get("host") ?? "";
   if (site && host && host !== site.host && !/^(localhost|127\.0\.0\.1|\[::1\])(:|$)/.test(host) && (req.method === "GET" || req.method === "HEAD")) {
-    const to = new URL(req.nextUrl.pathname + req.nextUrl.search, site.origin);
+    // build from the canonical origin and set only path and query, so a path such as //other.site can never change the destination
+    const to = new URL(site.origin);
+    to.pathname = req.nextUrl.pathname.replace(/^\/{2,}/, "/");
+    to.search = req.nextUrl.search;
+    if (to.origin !== site.origin) return new NextResponse(null, { status: 400 });
     return NextResponse.redirect(to, 308);
   }
   if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) return NextResponse.next();
