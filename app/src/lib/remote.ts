@@ -273,7 +273,10 @@ export async function loadInbox(): Promise<{ contacts: Contact[]; conversations:
   return {
     contacts: contacts.map((c) => mapContact(c, tagsOf.get(c.id) ?? [], pausedOf.get(c.id) ?? null)),
     // messages came newest first; the mapper sorts, but "latest automation" wants them oldest first
-    conversations: convs.map((c) => mapConversation(c, [...(msgsOf.get(c.id) ?? [])].reverse(), notesOf.get(c.id) ?? [])),
+    // only conversations where we sent something (queued, sent, delivered or read); people who only wrote to us stay out of the inbox
+    conversations: convs
+      .filter((c) => (msgsOf.get(c.id) ?? []).some((m) => m.direction === "out" && m.status !== "failed" && ["text", "doc", "public_reply"].includes(m.kind)))
+      .map((c) => mapConversation(c, [...(msgsOf.get(c.id) ?? [])].reverse(), notesOf.get(c.id) ?? [])),
     team: team.map((t) => ({ id: t.user_id, name: t.email.split("@")[0], email: t.email, role: t.role as State["team"][number]["role"] })),
   };
 }

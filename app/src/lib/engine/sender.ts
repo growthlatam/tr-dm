@@ -105,8 +105,14 @@ export async function sendQueued(db: DB, opts: { limit?: number; fetchImpl?: F; 
     let token: string;
     try { token = decryptToken(acc.access_token_enc); } catch { await fail(m.id, "token could not be decrypted"); out.failed++; continue; }
     try {
-      const r = await f(req.url, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify(req.body) });
-      const j = await r.json().catch(() => ({}));
+      let r = await f(req.url, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify(req.body) });
+      let j = await r.json().catch(() => ({}));
+      // Meta sometimes answers a public reply with error 20 ("does not support the requested response format") even though the
+      // same call worked minutes before. The reply endpoint takes ordinary form fields, so try once more in that format.
+      if (!r.ok && m.kind === "public_reply" && j?.error?.code === 20) {
+        r = await f(req.url, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(req.body as Record<string, string>).toString() });
+        j = await r.json().catch(() => ({}));
+      }
       if (r.ok) {
         await db.from("messages").update({ status: "sent", external_message_id: j.message_id ?? j.id ?? null, scheduled_for: null, failure_reason: null }).eq("id", m.id);
         if (contact) await db.from("events").insert({ org_id: m.org_id, type: "message_sent", contact_id: contact.id, automation_id: m.automation_id ?? null });

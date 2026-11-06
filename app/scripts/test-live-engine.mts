@@ -4,7 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 import { randomBytes } from "node:crypto";
 import { buildGraph, type Graph } from "../src/lib/flow";
 import { eventsFrom } from "../src/lib/meta";
-import { PRIVATE_REPLY_PER_HOUR, processPending, resumeDueRuns } from "../src/lib/engine/process";
+import { PRIVATE_REPLY_PER_HOUR, processEvent, resumeDueRuns } from "../src/lib/engine/process";
 
 const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, { auth: { persistSession: false } });
 let fails = 0;
@@ -17,10 +17,21 @@ const uid = () => `${tag}${++n}`;
 const one = async <T>(q: PromiseLike<{ data: T; error: unknown }>) => { const r = await q; if (r.error) throw new Error(JSON.stringify(r.error)); return r.data; };
 
 /** Send a Meta-shaped body through the same splitter the webhook uses, then process it. */
+// Processes only the events this call inserted. The shared database also receives real webhooks, and the live site processes
+// whatever is waiting, so a global "process everything pending" would make these counts depend on who got there first.
 async function deliver(body: unknown) {
   const evs = eventsFrom(body);
-  await one(db.from("webhook_events").upsert(evs.map((e) => ({ provider: "meta", external_event_id: e.id, payload: e.payload })), { onConflict: "provider,external_event_id", ignoreDuplicates: true }));
-  return processPending(db, 50);
+  const rows = (await one(db.from("webhook_events").upsert(evs.map((e) => ({ provider: "meta", external_event_id: e.id, payload: e.payload })), { onConflict: "provider,external_event_id", ignoreDuplicates: true }).select("id,external_event_id,payload"))) as { id: string; external_event_id: string; payload: unknown }[];
+  const tally = { processed: 0, ignored: 0, failed: 0 };
+  for (const row of rows) {
+    const claim = await db.from("webhook_events").update({ attempts: 1 }).eq("id", row.id).eq("status", "received").select("id");
+    if (!claim.data?.length) continue; // the live site got there first; its result is not ours to count
+    let out;
+    try { out = await processEvent(db, row); } catch (e) { out = { status: "failed" as const, reason: String(e) }; }
+    await db.from("webhook_events").update({ status: out.status, error: out.reason ?? null, processed_at: new Date().toISOString() }).eq("id", row.id);
+    tally[out.status]++;
+  }
+  return tally;
 }
 const comment = (from: string, media: string, text: string, acct = IG) => ({ object: "instagram", entry: [{ id: acct, time: 1, changes: [{ field: "comments", value: { id: `c${uid()}`, text, from: { id: from, username: "u" + from }, media: { id: media } } }] }] });
 const dm = (from: string, text: string, acct = IG, extra: object = {}) => ({ object: "instagram", entry: [{ id: acct, time: 1, messaging: [{ sender: { id: from }, recipient: { id: acct }, timestamp: 1, message: { mid: `m${uid()}`, text, ...extra } }] }] });
@@ -64,9 +75,13 @@ try {
   ck("1. tag applied", tags.some((t) => t.tags?.name === "lead"));
   ck("1. nothing was sent to Meta (all queued)", o.every((x) => x.status === "queued"));
 
-  // 2 ── same person, same post, again
+  // 2 ── same person, same post, a NEW comment: answered again (a person who comes back with another word gets the reply)
   r = await deliver(comment("A1", "MEDIA1", "guia"));
-  ck("2. second comment by the same person on the same post is ignored", r.ignored === 1 && r.processed === 0, JSON.stringify(r));
+  ck("2. a new comment by the same person on the same post is answered", r.processed === 1, JSON.stringify(r));
+  const retry = comment("A1", "MEDIA1", "guia");
+  await deliver(retry);
+  r = await deliver(retry);
+  ck("2. the same comment delivered twice is answered once", r.processed === 0, JSON.stringify(r));
   // 3 ── wrong post, no keyword, own comment
   r = await deliver(comment("A2", "OTHER", "guia"));
   ck("3. comment on another post is ignored", r.ignored === 1);
@@ -103,7 +118,16 @@ try {
   ck("5. an unsubscribed person gets nothing from automations", r.ignored === 1);
   r = await deliver(dm("A1", "iniciar"));
   const a1b = (await one(db.from("contacts").select("status").eq("external_id", "A1").single())) as any;
-  ck("5. 'iniciar' subscribes again", a1b.status === "subscribed");
+  ck("5. 'iniciar' subscribes again", a1b.status === "subscribed", JSON.stringify(r));
+
+  // 5b ── the inbox is for people we wrote to: nobody-to-answer DMs and story mentions are not stored at all
+  r = await deliver(dm("N1", "oi, tudo bem?"));
+  ck("5b. a DM nobody answers, from someone we never wrote to, is dropped", r.ignored === 1 && (await db.from("contacts").select("id").eq("external_id", "N1")).data?.length === 0, JSON.stringify(r));
+  r = await deliver(dm("N2", "", IG, { attachments: [{ type: "story_mention", payload: { url: "https://x.test/s" } }] }));
+  ck("5b. a story mention nobody answers opens no conversation", r.ignored === 1 && (await db.from("contacts").select("id").eq("external_id", "N2")).data?.length === 0, JSON.stringify(r));
+  r = await deliver(dm("A1", "ola de novo"));
+  ck("5b. but a person we already wrote to is still heard", r.processed === 1 || r.ignored === 1, JSON.stringify(r));
+  ck("5b. and their message is stored", (await msgs("A1")).some((x) => x.direction === "in" && x.body.text === "ola de novo"));
 
   // 6 ── DM keyword automation: the person wrote first, window is open, a document can go straight away
   const dmGraph = JSON.parse(JSON.stringify(wiz)) as Graph;
@@ -114,7 +138,7 @@ try {
   await publish("dm flow", dmGraph);
   r = await deliver(dm("B1", "Quero o catalogo"));
   const b = outs(await msgs("B1"));
-  ck("6. DM keyword answers in the window, no public reply", r.processed === 1 && b.some((x) => x.kind === "doc" && x.body.mode === "window") && !b.some((x) => x.kind === "public_reply"));
+  ck("6. DM keyword answers in the window, no public reply", r.processed === 1 && b.some((x) => x.kind === "doc" && x.body.mode === "window") && !b.some((x) => x.kind === "public_reply"), JSON.stringify([r, b.map((x) => x.kind + ":" + x.body?.mode)]));
   const contactB = (await one(db.from("contacts").select("window_expires_at").eq("external_id", "B1").single())) as any;
   ck("6. writing to us opened the 24h window", !!contactB.window_expires_at && new Date(contactB.window_expires_at) > new Date());
 
@@ -169,7 +193,7 @@ try {
   r = await deliver({ object: "instagram", entry: [{ id: IG, time: 1, messaging: [{ sender: { id: IG }, recipient: { id: "B1" }, timestamp: 1, message: { mid: `e${uid()}`, text: "our own", is_echo: true } }] }] });
   ck("12. echoes of our own messages are ignored", r.ignored === 1);
   r = await deliver({ object: "instagram", entry: [{ id: IG, time: 1, messaging: [{ sender: { id: "B1" }, recipient: { id: IG }, timestamp: 9, read: { mid: "x" } }] }] });
-  ck("12. read receipts are ignored", r.ignored === 1);
+  ck("12. read receipts are ignored", r.ignored === 1, JSON.stringify(r));
 
   // 13 ── Messenger / Facebook page comment is routed to a Facebook trigger only
   const fbGraph = JSON.parse(JSON.stringify(wiz)) as Graph;
@@ -199,7 +223,7 @@ try {
   r = await deliver(tap("Z1", z2[1].body.payload));
   ck("14. the new button works even though the person already tapped the first one", r.processed === 1, JSON.stringify(r));
   r = await deliver(comment("Z1", "POST-B", "de novo"));
-  ck("14. a second comment on the same post is dropped and not stored", r.ignored === 1 && (await msgs("Z1")).filter((x) => x.direction === "in" && x.body.text === "de novo").length === 0);
+  ck("14. a second comment on the same post is answered too", r.processed === 1 && (await msgs("Z1")).filter((x) => x.direction === "in" && x.body.text === "de novo").length === 1, JSON.stringify(r));
 
   // nothing should be left half-done
   const stuck = (await one(db.from("webhook_events").select("id").eq("status", "received").filter("payload->>entry_id", "in", `(${IG},${FB},00000)`))) as any[];

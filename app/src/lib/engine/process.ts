@@ -78,8 +78,18 @@ export async function processEvent(db: DB, ev: { id: string; external_event_id: 
     const known = (must(await db.from("contacts").select("id,status").eq("channel_account_id", acc.id).eq("external_id", inb.senderId).limit(1), "contact") as Row[])[0];
     if (known) {
       if (known.status === "unsubscribed" || known.status === "blocked") return { status: "ignored", reason: `contact is ${known.status}` };
-      const seen = await db.from("automation_firings").select("id", { count: "exact", head: true }).eq("automation_id", wanted.auto.id).eq("contact_id", known.id).eq("post_external_id", inb.postId ?? "");
-      if ((seen.count ?? 0) > 0) return { status: "ignored", reason: "this person already got this automation for this post" };
+    }
+  }
+
+  // The inbox is for people we wrote to. A direct message or a story mention that no automation will answer, from someone we never
+  // messaged, is dropped without storing anything (no contact, no conversation). Replies from people we already wrote to are kept.
+  if (inb.kind === "message" || inb.kind === "story_mention") {
+    if (!pickAutomation(autos, inb)) {
+      const prior = (must(await db.from("contacts").select("id").eq("channel_account_id", acc.id).eq("external_id", inb.senderId).limit(1), "contact") as Row[])[0];
+      const talked = prior
+        ? ((await db.from("messages").select("id", { count: "exact", head: true }).eq("channel_account_id", acc.id).eq("direction", "out").neq("status", "failed").in("conversation_id", ((await db.from("conversations").select("id").eq("contact_id", prior.id).eq("channel_account_id", acc.id)).data ?? []).map((c) => c.id as string))).count ?? 0) > 0
+        : false;
+      if (!talked) return { status: "ignored", reason: "nothing to answer and we never wrote to this person" };
     }
   }
 
@@ -116,8 +126,8 @@ export async function processEvent(db: DB, ev: { id: string; external_event_id: 
   // ---- once per person per post (comments); frequency limit (default reply)
   const t = triggerNode(graph)!;
   if (isComment(source)) {
-    const ins = await db.from("automation_firings").insert({ org_id: acc.org_id, automation_id: auto.id, contact_id: contact.id, post_external_id: inb.postId ?? "", comment_external_id: inb.commentId });
-    if (ins.error) return ins.error.code === "23505" ? { status: "ignored", reason: "this person already got this automation for this post" } : fail(ins.error.message);
+    const ins = await db.from("automation_firings").insert({ org_id: acc.org_id, automation_id: auto.id, contact_id: contact.id, post_external_id: `${inb.postId ?? ""}#${inb.commentId}`, comment_external_id: inb.commentId }); // one firing per comment: a retried webhook is dropped, a new comment by the same person is answered
+    if (ins.error) return ins.error.code === "23505" ? { status: "ignored", reason: "this comment was already answered" } : fail(ins.error.message);
   } else if (source === "default_reply") {
     const since = new Date(now.getTime() - t.t.frequencyHours * HOUR).toISOString();
     const prev = await db.from("events").select("id", { count: "exact", head: true }).eq("contact_id", contact.id).eq("automation_id", auto.id).eq("type", "trigger_fired").gte("created_at", since);

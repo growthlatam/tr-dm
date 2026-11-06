@@ -148,6 +148,14 @@ try {
   await db.from("channel_accounts").update({ token_expires_at: null, status: "connected" }).eq("id", acc.id);
   const before = await markExpired(db);
   ck("a token with no expiry is left alone", (await one(db.from("channel_accounts").select("status").eq("id", acc.id).single())).status === "connected" && before >= 0);
+
+  // a public reply that Meta refuses with error 20 is retried once as a form post, and sent if that works
+  const pubRetry = await q(open.conv, "public_reply", { text: "tente de novo", comment_id: "CMT-RETRY" });
+  const seen: { type: string; body: string }[] = [];
+  const err20 = (async (_u: any, init: any) => { seen.push({ type: init.headers["content-type"], body: String(init.body) }); return seen.length === 1 ? new Response(JSON.stringify({ error: { code: 20, error_subcode: 1772107, message: "This API call does not support the requested response format" } }), { status: 400 }) : new Response(JSON.stringify({ id: "r1" }), { status: 200 }); }) as typeof fetch;
+  await sendQueued(db, { orgId, fetchImpl: err20, enabled: true, limit: 1 });
+  ck("a public reply refused with error 20 is retried as a form post and then sent", seen.length === 2 && seen[0].type === "application/json" && seen[1].type === "application/x-www-form-urlencoded" && seen[1].body.includes("message=tente") && (await state(pubRetry)).status === "sent", JSON.stringify(seen));
+
 } catch (e) {
   console.error("ERROR", e);
   fails++;
