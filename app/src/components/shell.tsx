@@ -79,9 +79,11 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   const side = (
     <>
-      <div className="px-5 pb-2 pt-6">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/brand/tr-echo-dark.svg" alt={t("app.name")} className="h-12 w-auto" />
+      <div className="px-3 pb-2 pt-4">
+        <div className="flex items-center justify-center rounded-lg bg-white px-3 py-2.5">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/brand/tr-echo-light.svg" alt={t("app.name")} className="h-9 w-auto" />
+        </div>
       </div>
       {remoteEnabled && ready && (
         <div className="space-y-3 p-3">
